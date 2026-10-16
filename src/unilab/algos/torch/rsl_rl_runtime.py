@@ -13,6 +13,9 @@ class RslRlPPORuntime:
     """Resolved PPO runtime consumed by the generic RSL-RL entrypoint."""
 
     wrapper_cls: type[RslRlVecEnvWrapper]
+    train: Any = None
+    play: Any = None
+    playback_factory: Any = None
 
 
 def resolve_rsl_rl_ppo_runtime(
@@ -46,4 +49,6 @@ def resolve_rsl_rl_ppo_runtime(
             f"PPO runtime resolver {runtime_resolver!r} must return an object with "
             "'wrapper_cls' attribute."
         )
-    return RslRlPPORuntime(wrapper_cls=wrapper_cls)
+    return RslRlPPORuntime(wrapper_cls=wrapper_cls,
+        train=getattr(runtime, "train", None), play=getattr(runtime, "play", None),
+        playback_factory=getattr(runtime, "playback_factory", None))

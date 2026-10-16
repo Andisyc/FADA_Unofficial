@@ -260,6 +260,9 @@ class RslRlPlaybackSession:
     def set_external_command(self, command: np.ndarray) -> Any:
         """Apply a velocity command and refresh every policy-facing observation."""
 
+        if self.info.get("student_observation_contract") == "g1_official_oracle_student66_v1":
+            self.env.set_external_command(command)
+            return self.refresh_observation()
         state = getattr(self.env, "state", None)
         info = getattr(state, "info", None)
         commands = info.get("commands") if isinstance(info, dict) else None
@@ -383,6 +386,12 @@ class FADAPlaybackSession(RslRlPlaybackSession):
             )
         if self.controller is None:
             raise RuntimeError("FADA playback controller is unavailable.")
+        if self.controller.policy.config.observation_contract == "g1_official_oracle_student66_v1":
+            if self.info.get("student_observation_contract") != "g1_official_oracle_student66_v1":
+                raise ValueError("Official Planner-IDM playback student view identity mismatch")
+            return self.controller.act_projected(self.env.get_student_observation(), commands)
+        if self.info.get("student_observation_contract") == "g1_official_oracle_student66_v1":
+            raise ValueError("Legacy Planner-IDM cannot run in the Official Oracle environment")
         return self.controller.act(observation, commands)
 
 
@@ -417,15 +426,9 @@ class OffPolicyPlaybackSession:
         self.autoreset_enabled = True
 
     def reset(self) -> np.ndarray:
-        if self.env.state is None:
-            self.env.init_state()
-        env_indices = np.arange(self.num_envs, dtype=np.int32)
-        reset_result = self.env.reset(env_indices)
-        if not isinstance(reset_result, tuple) or len(reset_result) != 2:
-            raise ValueError(f"Unexpected env.reset return format: {type(reset_result)!r}")
-        obs_out, info_out = reset_result
-        self.obs = np.asarray(self.obs_extractor(obs_out), dtype=np.float32)
-        self.current_priv_info = self._resolve_priv_info(obs_out, info_out)
+        state = self.env.reset_all()
+        self.obs = np.asarray(self.obs_extractor(state.obs), dtype=np.float32)
+        self.current_priv_info = self._resolve_priv_info(state.obs, state.info)
         self.step_count = 0
         return self.obs
 

@@ -93,7 +93,11 @@ def set_transition_input_rows(
             raise ValueError("transition target-height rows must contain only finite values")
 
     # Validate both fields before mutating either input owner.
-    commands_np[:, :3] = command_rows.astype(commands_np.dtype, copy=False)
+    command_setter = getattr(env, "set_external_command", None)
+    if callable(command_setter) and info.get("student_observation_contract") == "g1_official_oracle_student66_v1":
+        command_setter(command_rows)
+    else:
+        commands_np[:, :3] = command_rows.astype(commands_np.dtype, copy=False)
     if target_height_np is not None and target_rows_np is not None:
         target_height_np[:, :] = target_rows_np.astype(target_height_np.dtype, copy=False)
     refresh_state = getattr(env, "refresh_state", None)

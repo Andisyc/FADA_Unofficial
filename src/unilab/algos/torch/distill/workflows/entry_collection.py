@@ -210,6 +210,14 @@ def _require_teacher_policy_collection_route(cfg: DictConfig) -> None:
 
     task_name = str(OmegaConf.select(cfg, "training.task_name"))
     teacher_task_name = _teacher_task_name_for_collection(cfg)
+    if task_name == "G1OfficialOracleFlat":
+        if (teacher_task_name != task_name or str(cfg.teacher.algo_type) != "fada_official_ppo"
+                or not bool(OmegaConf.select(cfg, "training.fada.enabled", default=False))
+                or int(cfg.teacher.obs_dim) != 322 or int(cfg.teacher.critic_obs_dim) != 322
+                or int(cfg.student.obs_dim) != 66 or int(cfg.teacher.action_dim) != 29
+                or OmegaConf.select(cfg, "training.fada.observation_contract") != "g1_official_oracle_student66_v1"):
+            raise ValueError("Official teacher collection requires its dedicated PPO/Planner-IDM route")
+        return
     legacy_tasks = {"G1WalkFlat", "G1StandStill"}
     height_tasks = {"G1WalkHeight", "G1StandHeight"}
     if task_name not in legacy_tasks | height_tasks:

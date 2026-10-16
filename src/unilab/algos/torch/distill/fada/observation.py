@@ -9,6 +9,7 @@ FADA_G1_ACTOR_OBS_DIM = 98
 FADA_G1_STATE_DIM = 66
 FADA_G1_ACTION_DIM = 29
 FADA_G1_COMMAND_DIM = 3
+FADA_OFFICIAL_STUDENT_CONTRACT = "g1_official_oracle_student66_v1"
 
 
 def project_fada_g1_state(source_obs: np.ndarray) -> np.ndarray:
@@ -32,6 +33,8 @@ def projection_for_fada_observation_contract(observation_contract: str) -> str:
         return "identity"
     if observation_contract == FADA_G1_STATE_OBSERVATION_CONTRACT:
         return FADA_G1_STATE_OBSERVATION_CONTRACT
+    if observation_contract == FADA_OFFICIAL_STUDENT_CONTRACT:
+        return FADA_OFFICIAL_STUDENT_CONTRACT
     raise ValueError(f"unsupported FADA observation_contract: {observation_contract!r}")
 
 
@@ -43,6 +46,8 @@ def raw_observation_dim_for_fada_contract(
     """Return the public environment width consumed before policy projection."""
 
     projection = projection_for_fada_observation_contract(observation_contract)
+    if observation_contract == FADA_OFFICIAL_STUDENT_CONTRACT:
+        return 322
     return int(policy_observation_dim) if projection == "identity" else FADA_G1_ACTOR_OBS_DIM
 
 

@@ -212,10 +212,10 @@ def test_deployable_loader_accepts_old_and_new_while_source_reader_rejects_new(
         lora_config=adapted.lora_config,
         source_checkpoint_sha256="c" * 64,
         target_artifact_sha256="d" * 64,
-        target_artifact_schema_version="fada-target-batch/v2",
+        target_artifact_schema_version=checkpoint_owner.FADA_REAL_TARGET_ARTIFACT_SCHEMA_VERSION,
         completed_steps=0,
         samples_seen=0,
-        runtime_config={},
+        runtime_config={"target_domain": {"target_domain_id": "g1_hang_book_real"}},
     )
 
     assert (
@@ -230,6 +230,14 @@ def test_deployable_loader_accepts_old_and_new_while_source_reader_rejects_new(
         ).checkpoint["schema_version"]
         == "fada-adapted/v3"
     )
+    loaded_adapted = checkpoint_owner.load_fada_deployable_policy_checkpoint(
+        adapted_path, device="cpu"
+    )
+    assert (
+        loaded_adapted.checkpoint["target_artifact_schema_version"]
+        == checkpoint_owner.FADA_REAL_TARGET_ARTIFACT_SCHEMA_VERSION
+    )
+    assert loaded_adapted.checkpoint["target_domain_id"] == "g1_hang_book_real"
     with pytest.raises(ValueError, match="unsupported"):
         load_fada_policy_checkpoint(adapted_path, device="cpu")
 

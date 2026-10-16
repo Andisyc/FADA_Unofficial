@@ -13,6 +13,7 @@ from typing import Any, Iterator, Mapping
 import torch
 
 from unilab.algos.torch.distill.fada.model import FADAArchitectureConfig, FADASourceBatch
+from unilab.algos.torch.fada_official.checkpoint import validate_student_binding
 
 FADA_SOURCE_BATCH_SCHEMA_VERSION = 4
 FADA_SHARDED_SOURCE_SCHEMA_VERSION = 5
@@ -200,6 +201,7 @@ def save_fada_source_batch(
 ) -> Path:
     """Persist the legacy v4 monolith for offline and compatibility callers."""
 
+    validate_student_binding(config, metadata)
     validated = _validated_cpu_batch(batch, config=config)
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -293,6 +295,7 @@ class FADAShardedSourceWriter:
         )
 
     def commit(self, *, metadata: Mapping[str, Any]) -> Path:
+        validate_student_binding(self.config, metadata)
         if self._committed:
             raise RuntimeError("FADA source artifact was already committed")
         if not self._shards:
@@ -405,6 +408,7 @@ def open_fada_source_artifact(
     metadata = payload.get("metadata")
     if not isinstance(metadata, dict):
         raise ValueError("FADA source artifact metadata must be a mapping")
+    validate_student_binding(config, metadata)
     if schema_version == FADA_SOURCE_BATCH_SCHEMA_VERSION:
         batch = _batch_from_payload(payload.get("batch"), context="FADA source batch").validate(config)
         return LoadedFADASourceArtifact(
@@ -495,5 +499,8 @@ def validate_fada_async_artifact_identity(
     if missing:
         raise ValueError(f"FADA async artifact identity is incomplete: {missing}")
     mismatches = [name for name in identity_fields if metadata.get(name) != expected.get(name)]
+    if "official_oracle_identity" in expected:
+        if metadata.get("official_oracle_identity") != expected.get("official_oracle_identity"):
+            mismatches.append("official_oracle_identity")
     if mismatches:
         raise ValueError(f"FADA async artifact identity mismatch: {mismatches}")

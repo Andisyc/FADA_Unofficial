@@ -1,45 +1,212 @@
-# FADA Task Canvas
+# Current task
 
-Status: `V024 DESIGN-CONFIRMED / ENGINEERING-BLOCKED / NOT-IMPLEMENTED`
+Goal: 将官方 FADA Oracle Locomotion 训练语义适配到本仓库，复用 UniLab 的 CPU 采集/GPU 学习基础设施，接通模型回放和 Planner-IDM 蒸馏。
 
-## Objective
+Do not: 第1—5步和第6步6.1—6.4代码/离线接线已完成；6.5真实运行尚未授权。不启动真实仿真、GPU训练或GUI，不读写用户 checkpoint，不部署或做 Git 发布。不覆盖旧模型，不顺带修改 Target adaptation 或 Context。
 
-Turn the confirmed command-gated phase/contact Oracle semantics into one bounded engineering plan
-without reviving the v023 phase-only Reward or treating documentation as runtime evidence.
+Current identity:
+- 仓库：/Users/chengyuxuan/ArtiIntComVis/FADA_Unofficial。
+- 官方参考：LeCAR-Lab/FADA@290b3a9c5c0ebe2e9851b61350617544be05e9bc 的 g1_29dof_oracle，不是通用 G1 或 FastSAC 配方。
+- 阶段：第1—5步及第6步6.1—6.4已完成代码和定向离线验证；6.5原生运行/性能/策略质量未验收。第6步13项通过，使用真实Hydra/resolver/runner/checkpoint/source writer/trainer和session、仅替换原生物理后端；两轮CPU更新由一次新训和一次恢复各一轮组成。这不是MuJoCo物理、CUDA/H2D、吞吐或走直线质量证据。
+- 原 Source v024 路线保留在 [原计划](plans/2026-09-07-command-gated-phase-contact-oracle.md) 和 [原检查表](checklists/current.md)。本任务新增训练变体，不宣布旧语义失效。
+- 原 task canvas 写“未实现”，原检查表写“已实现且有限 smoke 通过”，状态不一致；不直接沿用其结论。
+- 已有 playback/reset、adaptation checkpoint 等未提交修改保持原样，不归入本次移植。
 
-## Current authority
+Confirmed decisions:
+- 用户要求从粗到细、分步规划；workflow-governance 维护一份状态，system-engineering 管总体路线，各步使用 engineering-plan。
+- 用户已授权并完成第1—5步及第6步6.1—6.4代码实施；6.5各项实际运行仍须另行授权，不能用代码授权代替训练授权。
+- 已实现路线：独立Oracle任务、官方PPO更新及按轮同步的CPU采集/学习进程；不以SAC/APPO替代。CPU离线链路通过，GPU实测尚未执行。
+- 首期建议限定 MuJoCo 平地适配版，不称为官方 IsaacSim 混合地形的完全复现。
+- 必须先冻结：关节排列及动作/PD/时间契约；actor/critic/学生各自的观测及坐标系；命令/相位时序；rollout 策略版本及终止/超时语义；checkpoint 算法、schema 和 lineage。
+- 不默默混入旧欠速、走廊、镜像或课程规则，不放宽旧模型校验；不承诺仅靠移植就解决偏航，也不预报未测量的加速倍数。
 
-- Project governance: `../governance/README.md`
-- Concept Figure: `../architecture/08_in_context_execution_calibration.html`
-- Design Inspector: `../architecture/09_in_context_execution_calibration_design_inspector.html`
-- Method Contract: `contracts/active/method/FADA-METHOD-v024.md`
-- Training Contract: `contracts/active/training/FADA-TRAIN-v024.md`
-- Confirmed design plan: `plans/2026-09-07-command-gated-phase-contact-oracle.md`
-- Activation receipt: `governance/2026-09-07-v024-command-gated-phase-contact-design-confirmed.json`
-- Current checklist: `checklists/current.md`
+Progress:
+- [x] 总体规划与 owner 定位 — Done when: 六步有明确依赖、边界和最近验证。
+  - Evidence: 只读核对 G1WalkEnv、命令/观测/奖励 owner、FinalObservationAwarePPO、APPO runner、IPC、Oracle loader/checkpoint、蒸馏教师接口和已有看板；没有运行测试或仿真。
 
-## Cursor
+- [x] 1. 冻结官方与本地接口 — Done when: 本看板记下精确字段映射、有效配置及无法等价的差异。
+  - Change / allowed scope: 只读官方 config_values/loco/g1 的任务、机器人、动作、观测、命令、奖励、DR、终止配置及实际 term/PPO 实现；对照本地 g1/{joystick,walk_config,walk_observation,walk_commands,fada_privileged}.py、SimBackend 和 checkpoint owner；只更新本看板。
+  - Why: 后续各步必须共享同一个输入、动作、时间和持久化含义。
+  - Freeze: 观测字段/维数、按关节名映射、重力符号和坐标系、接触采样、PD/限幅/时延、相位时序、奖励 dt 缩放、有效 DR、PPO 优化规则、训练预算和中间教师选取。不能照搬 SAC 的 5000 iterations。
+  - Preserve / forbidden: 不改接口，不填猜测值，不以补零或关校验掩盖缺失数据；列出混合地形的能力缺口，但不在首期实现它。
+  - Check: 一份具体状态/动作示例逐字段对应两边输入输出及单位，暴露所有无法对应项；这是接口证据，不是运行证明。
+  - Depends on: 无。关键资料缺失时明确保留未决项，不让下游猜测。
+  - Evidence (2026-10-16): 固定官方 commit，逐项读配置及实际函数；本地读源码、XML 和已安装 RSL-RL 实现。完成下列接口映射及一次手工输入计算；没有实例化环境、运行 pytest、更新权重或训练。官方 runtime 的实际维数仍须在步骤 6 核验，不能把源码推导当作运行结果。
+  - 接口映射（本地文件均相对 src/unilab，官方文件均相对 src/holosoma/holosoma）：
 
-The v024 semantic owner and human projection are synchronized. v023 is historical and unrun;
-`mujoco_fada_phase` is compatibility/comparison only. There is no v024 production selector,
-implementation, Module Test receipt, formal runtime receipt, checkpoint, training run or policy
-quality evidence.
+    | 接口 | 官方实际定义 | 本地现状及后续处理 |
+    |---|---|---|
+    | 29 关节顺序 | robot.py:dof_names：左腿 pitch/roll/yaw/knee/ankle_pitch/ankle_roll，右腿同序，腰 yaw/roll/pitch，左右臂各 7 维 | assets/robots/g1/g1.xml 的 actuator 顺序一致；默认关节角也一致。保留按名称核对；先前根据 Reward 注释判断 hip 顺序不同不成立，不能据此交换 pitch/yaw。步骤 2。 |
+    | 动作及 PD | JointPositionActionTerm：q_target=q_default+0.25*a，动作 clip ±100，PD 后加 RFI 并按 effort limit 限幅；effort/Kp 缩放开关在此 G1 为 false | 旧 SAC action_scale=1，MuJoCo 为 position actuator；新任务用 0.25，不继承旧 SAC/tanh 动作假设。现有 PD 数值仅近似一致，需以官方逐关节参数为新变体来源。步骤 2/3。 |
+    | 初始状态与物理频率 | root z=0.8，sim_dt=0.005，4 个物理步/控制步，ctrl_dt=0.02 | 当前 stand keyframe z=0.754，sim_dt=0.02/3；不能只对齐控制频率。新任务/资产显式配置 0.8 和 200 Hz，旧文件行为不变。步骤 2。 |
+    | 物理模型差异 | 官方提供逐关节 armature/friction、URDF 和关闭自碰撞配置 | 当前 XML 默认 armature=0.01、frictionloss=0.3，有自己的碰撞几何；不是原模型数值等价。步骤 2 用独立资产变体核对参数和碰撞，不直接修改共享 g1.xml。 |
+    | teacher actor/critic | 两者同一套、无噪声、history=1；按下面的布局源码推导各 322 维 | 旧 actor=98、critic=98+(174+body_count)，privileged SAC 另编码特权尾部。新任务的 obs/critic 均提供新完整布局，不复用旧 SAC 特权编码器或旧 schema。步骤 2/3/5。 |
+    | 姿态/速度坐标 | 以 root/pelvis 姿态把世界速度和向下重力转入 body frame；四元数 xyzw；gyro ×0.25，linvel ×2，joint_vel ×0.05 | 当前输入来自 pelvis 线速、torso gyro/upvector，actor 对 upvector 取负；torso framezaxis 是世界表达的 torso z 轴，倾斜时不能仅取负冒充 root-frame gravity。新路径从 SimBackend 的 root pose/世界速度显式变换；其四元数是 wxyz，需转换。步骤 2。 |
+    | actuator compact 177 | prev_action29、延迟后 action29、delay_idx1、限幅 normalized_torque29、Kp29、Kd29、RFI scale29、RFI enabled/lim2 | 已有部分 Kp/Kd/torque/delay 数据，但缺前一动作层级及完整 meta；新 owner 在实际 reset/step 维护，不用固定零代替。旧 bias/RFI helper 的 ±0.025/0.05 硬上限不允许直接用于官方 ±0.05/0.1。步骤 2。 |
+    | contact compact 8 | 两脚当前世界接触力 /100 并 clip ±5，共6维；force norm>1 N 的两脚标志2维 | 当前 netforce 传感器的 flag 是 found>0，且原始力未缩放；需按官方重新生成、核对力向量参考系。奖励另使用历史最大值，不与当前力混用。步骤 2。 |
+    | terrain compact 13 | base clearance1、foot clearance2、3×3 profile9、root_z-base_clearance1；profile 是局部高度相对 base clearance 的差，不是直接地面高度 | 官方 mix spacing=0.2，网格强制奇数，故 3×3；平地解析构造同样含义，不能把旧 terrain_heights 的9个零直接当完整13维。非平地不在首期。步骤 2。 |
+    | command/gait compact 10 | command3、sin(left/right)2、cos(left/right)2、frequency1、phase_dt1、stand1 | 旧输入是 command3+原始phase2；显式新布局，不把两种表示混用。步骤 2；学生输入独立处理，见下。 |
+    | DR compact 18 | 指定9个 link加torso共10个绝对质量、friction1、COM xyz3、push_interval1、push_progress1、max_push_xy2；normalize=false | 当前是全部 body 的质量比例及标量 push 字段，含义不同；按 body name 取实际质量、维护每环境推搡进度与幅值。步骤 2。 |
+    | 命令与相位时序 | vx/vy/yaw 均 U[-1,1]，20%站立，10 s重采样；训练频率 U[0.8,1.2] Hz，评估1 Hz；episode_step*phase_dt+offset，wrap到[-pi,pi)；低于xy/yaw 0.01时输出[pi,pi] | 当前主配置30%站立、不同速度范围、无周期重采样、1.5 Hz连续相位；不能继承。训练中重新运动不等于固定重启相位；不可混用官方部署侧起步重置规则。heading字段存在不代表采样器使用航向反馈。步骤 2。 |
+    | Reward 与课程 | g1_29dof_loco_unitree；线速以 yaw-only frame 跟踪，yaw rate用root body frame；总和只乘一次dt，无正值裁剪；步态Reward另有命令3维norm>0.1门槛 | 不能用现有传感器frame速度或旧绝对脚高Reward替代。unitree配置各项没有 penalty_curriculum tag，不能照搬旧惩罚/DR课程；显式核对官方课程实际作用，不从“curriculum已配置”推断生效。步骤 2。 |
+    | 接触与终止 | IsaacSim ContactSensorCfg明确update_period=0.005，history_length=3；scene每物理步更新，refresh仅取最近min(decimation=4,history=3)帧；gait/slide/undesired用历史force norm最大值>1 N；pelvis/shoulder/hip接触终止，gravity xy阈值0.75，地形相对高度<0.32，timeout独立 | 当前脚部传感器没有通用各body接触历史；步骤2需在SimBackend公共边界输出每5ms一次的最近3帧及reset清零，不能以3个控制步替代。MuJoCoBackend.step默认pool一次推进nsteps且只保留末端sensor，因此需在现有backend/pool owner增加子步采样路径，不能仅在env末端攒历史；优先保留批处理，确需逐子步循环时需在步骤6测吞吐代价。 |
+    | PPO与rollout | MLP ELU [512,256,128]，初始std0.8；无镜像/经验归一化；T=24，epoch8，minibatch4，gamma0.99，lambda0.95，clip0.2；actor/critic独立AdamW，lr各1e-5，wd0.001，分别梯度裁剪1 | 当前本地PPO默认epoch5/lr1e-3，已安装RSL-RL共用optimizer；新变体不能只改YAML假装等价。官方全rollout归一化advantage；KL>2×0.01或0<KL<0.01/2时lr÷/×1.5，范围[1e-5,1e-2]。步骤3。 |
+    | 超时与IPC | 用final_observations计算V_final，r+=gamma*V_final，再以done切断GAE；rollout需存actor/critic obs、raw action、old logp/mean/std/value、reward/done、末端obs与策略版本 | 本地FinalObservationAwarePPO已有final obs路线可复用；APPO ring当前没有全部PPO统计和版本字段，且会跳过被覆盖数据。步骤4扩展现有IPC及生命周期，按轮消费完整批次，不直接套APPO learner。 |
+    | checkpoint与中间教师 | 官方actor_model_state_dict/critic_model_state_dict、各optimizer、iter及配置；25000个PPO迭代；DAgger按reward抽20个中间教师 | 当前Oracle schema3固定20个240间隔+5000、限定旧privileged schema；新PPO需独立算法/schema和lineage，不冒充旧谱系，不把25000改名成5000。全run中间权重与reward选择元数据由步骤5支持；旧检查保持原样。 |
+    | 学生输入 | 本轮不移植官方Planner网络；教师特权向量不作为学生输入 | 保留独立学生视图及旧66维语义：gyro3+gravity3+qdiff29+qvel29+phase2；旧98→66投影只能用于旧布局，不能切322的同一索引。由步骤2保留学生视图来源、步骤5适配采集/加载；新模型须带新任务/动作身份，不能声称兼容旧Planner权重。 |
 
-The next admissible unit is a checkout-bound affected-module registry plus an engineering plan and
-plain-language Module Test Cards. It must resolve ownership for command normalization, phase
-advance/freeze, contact sensing, Reward dispatch, observation/checkpoint identity, configuration,
-Planner-IDM collection and target-route admission before any production edit.
+  - 322维布局（半开区间，公式推导）：[0:3]角速；[3:6]线速；[6:35]qdiff；[35:64]qvel；[64:93]最近action；[93:96]gravity；[96:273]actuator；[273:281]contact；[281:294]terrain；[294:304]command/gait；[304:322]DR。9个采样link再加torso，必须按官方名称排列，而非按本地body ID截取。
+  - 奖励权重冻结为官方有效unitree项：track_xy=4.5，track_yaw=2.5，alive=0.15，lin_z=-2，ang_xy=-0.05，joint_vel=-0.001，joint_acc=-2.5e-7，action_rate=-0.2，pos_limits=-5，energy=-2e-5，pose=-0.5，orientation=-5，world_base_height=-10(target0.78)，gait=0.5(duty0.55)，slide=-0.2，clearance=1(target0.05/std0.05/tanh_mult2)，feet_ori=-2，close_feet=-5(threshold0.2)，undesired=-1。pose数组按实际joint顺序使用，不按错位注释重新排列。正式公式对照属于步骤2，不在本步声称逐项数值等价。
+  - DR有效配置：Kp/Kd [0.8,1.2]，指定link质量 [0.8,1.3]，torso附加质量[-3,6]，friction[0.1,2]，torso COM各轴±0.15，dof bias±0.05，控制延迟0/1，RFI0.1，推搡间隔[5,10]及max_xy [0.1,1.5]；reset关节位置乘[0.5,1.5]。startup/reset/step分别执行的项应按官方生命周期移植，不能全部改成每回合重新采样。
+  - 唯一手工走查：root yaw=pi/2、无roll/pitch，world velocity=[0,0.6,0]，body yaw rate=0.02，q=q_default，dq=0，最近动作全零，phase=[0,-pi]，frequency=1，dt=0.02，command=[0.6,0,0]，平地root_z=0.8、脚clearance各0.05。推导 teacher线速=[1.2,0,0]、gyro=[0,0,0.005]、gravity=[0,0,-1]；command/gait=[0.6,0,0,0,0,1,-1,1,0.1256637061,0]；terrain=[0.8,0.05,0.05,0×9,0]；合计322维。当前actor前6维不是该排列，故不能使用旧索引投影。
+  - 同一走查的动作/学习边界：令下一动作left_hip_pitch=0.2，q_default=-0.312，无bias/RFI/延迟，则官方target=-0.262，旧scale1为-0.112；官方静态PD力矩约2.0089619 Nm。只算速度奖励分项：xy=0.09/控制步、yaw≈0.049920064/控制步，不冒充总奖励。另令timeout reward=1、V_final=2，则存储reward=2.98、done=true，不能用reset后V替代。
+  - 采样/初始化边界补查已关闭：官方simulator/isaacsim/isaacsim.py的ContactSensorCfg、simulate_at_each_physics_step、refresh_sim_tensors明确5ms节拍和最近3帧；clear_contact_forces_history按reset行清零。本地对应base/backend/mujoco/backend.py:step/_step_with_pre_step_control；历史采样实现留步骤2，不再有历史“帧”单位未决项。另官方BaseTask.reset_all会执行一次零动作step；新任务首次观测需显式对齐该时序，不能修改旧NpEnv.reset_all的全局行为或复用过期actor obs。
+  - 源码定位：[官方robot](https://github.com/LeCAR-Lab/FADA/blob/290b3a9c5c0ebe2e9851b61350617544be05e9bc/src/holosoma/holosoma/config_values/robot.py)、[观测terms](https://github.com/LeCAR-Lab/FADA/blob/290b3a9c5c0ebe2e9851b61350617544be05e9bc/src/holosoma/holosoma/managers/observation/terms/locomotion.py)、[任务配置目录](https://github.com/LeCAR-Lab/FADA/tree/290b3a9c5c0ebe2e9851b61350617544be05e9bc/src/holosoma/holosoma/config_values/loco/g1)、[PPO实现](https://github.com/LeCAR-Lab/FADA/blob/290b3a9c5c0ebe2e9851b61350617544be05e9bc/src/holosoma/holosoma/agents/ppo/ppo.py)、[terrain实现](https://github.com/LeCAR-Lab/FADA/blob/290b3a9c5c0ebe2e9851b61350617544be05e9bc/src/holosoma/holosoma/managers/terrain/terms/locomotion.py)。本地关键函数：walk_observation.py:assemble_walk_observation、walk_control_bindings.py的动作执行、fada_privileged.py:pack_fada_runtime_observation/apply_fada_pd_target_perturbation、walk_runtime_bindings.py:update_state、fada/observation.py:project_fada_g1_state、training/rsl_rl.py:normalize_ppo_train_cfg。
 
-## Preserved
+- [x] 2. 移植独立 Oracle 任务 — Done when: 新任务的观测、命令、相位、奖励和物理参数按步骤 1 实现，旧任务不变；物理运行与跨引擎差异验收留步骤 6。
+  - Implementation status (2026-10-16): 已新增 G1OfficialOracleFlat、七个 owner 模块、MuJoCo 独立资产和 Hydra task；backend 增加 opt-in 5ms 接触历史及只读惯量接口。obs/critic 各322维，学生独立66维；显式子步PD、延迟、19项Reward、startup缓存DR、终止学生视图及快照已实现。不交付正式训练命令；步骤3/4/5/6职责不变。
+  - Evidence: uv run --frozen --no-sync pytest tests/envs/locomotion/g1/test_official_oracle_flat.py -q：11 passed。首次6通过/5失败为假backend漏填nq/nv及float32容差，修正后仅重跑同文件。覆盖静态XML/mesh/关节参数、322布局/独立66视图、坐标、缩放/延迟/PD、19项Reward/dt、相位与周期命令、假pool四次子步/历史/局部reset/快照、refresh、timeout末端视图、startup DR缓存、能力缺失拒绝、推搡时序及旧禁用路径。没有编译真实MjModel、启动物理仿真、优化器或训练。
+  - Source timing detail: 对照官方base_task.py和command/terms/locomotion.py，奖励/终止使用本轮既有命令与相位，末端观测保存在reset前；reset后再更新命令、相位与interval DR。10秒命令重采样只重采样频率和速度，不重置左右相位offset；评估默认零命令、1Hz。
+  - Adaptation limits: 使用固定commit官方MJCF并复用本地mesh；逐关节range/effort/armature/friction按官方robot.py覆盖，移除额外ankle tendon及固定friction floor pair，禁用自碰撞。MuJoCo接触几何、solver、单一滑动摩擦系数仍不等价于官方IsaacSim URDF/静动态材质；按64桶对碰撞geom采样并观察均值。这里只实现平地，不包含混合地形。5ms传感器实际物理数值、XML编译、吞吐和策略质量均未验收，不能据此宣称已能走直线。
+  - 以下保留本步实施包，供后续步骤追溯：
+  - Why: 旧 G1WalkEnv 绑定多套奖励、课程和 legacy privileged schema；复制官方数值进入旧 selector 会隐式混入旧行为。选择独立 G1BaseEnv 子类，复用 NpEnv、registry、DR manager、SimBackend 和现有批量线程池，不复制第二套训练框架。
+  - Change / allowed scope: 新增 src/unilab/envs/locomotion/g1/official_oracle/ 下 config.py、env.py、command.py、actuation.py、observation.py、reward.py、randomization.py 和包入口；各自只拥有配置、状态编排、命令相位、执行器、观测、公式及DR。必要既有文件仅为 g1/__init__.py 注册导入、base/backend/base.py 公共能力、base/backend/mujoco/backend.py 的 opt-in 采样/快照实现。新增独立任务资产和单个定向测试文件，不修改旧 G1WalkEnv/bindings。
+  - 实施顺序（均属于系统步骤 2，不是新增系统阶段）：
 
-v022 typed privilege and broad physical DR, with targeted actuator faults excluded from Oracle
-training and generic all-joint Kp/Kd DR on; left-knee gain attenuation is downstream failed-rollout
-collection only; sealed 20+1 lineage; Planner-IDM
-H=30/K=6/state66/action29/command3/action-free-future contract; FADA-ADAPT v003; Context v009/v008
-as a separate track; backend and asset-access contracts.
+    | 局部实施单元 | 修改位置及行为 | 依赖及完成标准 |
+    |---|---|---|
+    | 2.1 独立任务与资产 | 新 config/env 和 g1/__init__.py 注册 G1OfficialOracleFlat，仅支持 MuJoCo；新增 conf/ppo/task/g1_official_oracle_flat/mujoco.yaml，提供 task_name/backend/env/reward，不配置或改写 learner。新 assets/robots/g1/official_oracle/{robot,scene_flat}.xml，复用已有 mesh 文件，不改旧 g1.xml。按官方配置设置29关节、0.8初始高度、sim_dt=0.005、ctrl_dt=0.02、0.25动作比例及限幅。keyframe只在scene。 | 依赖步骤1；静态配置可选择新类，动作顺序、默认角、惯量/armature/friction/碰撞差异可追溯；没有新任务时旧注册与资产字节不变。未完成步骤3前，不把默认PPO配置称作官方可训练配方。 |
+    | 2.2 子步执行与公共接触能力 | 新 actuation.py 使用 SimBackend.set_pre_step_control，每5ms按最新q/dq计算显式PD、bias、RFI、力矩限幅；新资产使用motor执行已算出的力矩，避免再叠MuJoCo position servo。backend.py扩展已有子步循环，每次依旧由BatchEnvPool并行推进全部环境，并记录当前接触力及最近3帧。 | 依赖2.1；原始policy action、clip后action、delay后action、q_target、实际提交torque分开维护；旧任务未启用时仍走原多步batch路径。假pool可证明4次5ms更新、历史时间顺序、reset局部清零和快照恢复；不承诺未测吞吐。 |
+    | 2.3 任务语义和状态生命周期 | 新 command/observation/reward/randomization 与 env.py 编排：移植官方采样/相位/奖励/终止/DR生命周期；产出obs和critic各322维、独立学生66维视图。refresh只重新计算观测，不能推进相位、采样随机数或改变上一动作。 | 依赖2.1/2.2；固定输入上逐字段观测和逐项/总奖励对照通过；命令切换、5ms历史、局部reset、timeout final observation和学生信息边界一致。完成该单元不代表训练或策略效果通过。 |
 
-## Forbidden now
+  - 后端能力边界（拟新增，实际命名允许按仓库风格微调，含义固定）：SimBackend.configure_contact_history(body_names, history_length=3, sample_dt=0.005) 仅初始化调用；get_body_contact_forces_w(body_ids) 返回(N,B,3)，get_body_contact_force_history_w(body_ids)返回(N,3,B,3)，单位N、世界坐标、最新帧在前；禁用时不分配、不更新历史。其他backend默认明确NotImplementedError，不伪造零值。
+  - 采样实现决定：已安装 mujoco/batch_env.py:BatchEnvPool.step 明确仅返回最后一步state/sensordata，没有轨迹参数。本步不改 .venv/site-packages、不改原生C++包、不扩另一仓库；利用 MuJoCoBackend._step_with_pre_step_control 的既有循环，在新任务每控制步调用4次 nstep=1；增加末端历史更新，不写每环境Python仿真循环。新任务启用post_step_forward_sensor以获得与输出状态一致的末端数值，吞吐测量留步骤6。
+  - 接触数据来源：新scene为所需body配置netforce传感器，ground为第一对象、robot body为第二对象；reduce=netforce的向量在世界坐标，不能套用普通contact-frame力。初始化缓存sensor/body映射；每子步直接读取数值，reset只清目标行。来源为本地mj_printSchema及[MuJoCo contact定义](https://mujoco.readthedocs.io/en/stable/XMLreference.html#sensor-contact)。只覆盖当前平地与禁用自碰撞的任务，不暗中宣称支持其他外部接触。
+  - 执行器及随机化：Kp/Kd随机倍率由新任务状态用于显式PD，不向motor应用position-gain patch；bias/RFI使用官方范围和官方计算顺序，不能放宽旧helper的硬上限。每个物理子步的实际限幅力矩供观察/能耗使用，不在控制步末用新q/dq重新估算上一步已执行力矩。关闭故障注入、旧动作权限mask、旧惩罚/DR课程和观测噪声；官方课程只移植经实际term证明有效的部分。
+  - 动作空间及回退：新env覆写LocomotionBaseEnv._init_action_space，公开29维policy动作及±100裁剪，不把motor的原生力矩ctrlrange误当policy动作范围；执行器限幅仍按各关节effort limit。默认不选择新selector即保持旧路线，回退只需恢复旧启动命令，不回滚用户已有修改。
+  - DR依赖方向：新Provider实现现有DomainRandomizationProvider接口，继续由DomainRandomizationManager执行ResetPlan/IntervalRandomizationPlan。startup物理参数只采样一次并按环境缓存，后续reset可重复提交相同绝对数值而不重新采样；reset所有者负责关节初态、命令/频率与延迟，step所有者负责per-env推搡时钟。新provider.validate必须拒绝缺失的官方DR能力，不能使用manager的“warning后跳过”路径伪装对齐。
+  - 对外观测边界：obs_groups_spec只声明obs=322、critic=322，两个组不含学生辅助输入；不能增加student组后被通用flat wrapper误拼进teacher。学生66维由独立builder/accessor提供，维持既定字段意义、排除线速/接触/DR特权信息，所有视图从同一当前状态生成；必要的终止前学生视图和mask保存在info，禁止从reset后的行拼接终止样本。收集器/Planner加载修改仍留步骤5。
+  - reset/refresh/snapshot：保留NpEnv的dict obs、reset返回tuple、reset_all状态同步和final_observation契约。仅新环境的显式reset_all准备路径对齐官方一次零动作控制步，不计入学习batch；局部autoreset不推进其他环境，refresh无物理步。backend快照在启用时增加接触缓存，新任务快照包含动作队列、相位/频率、DR及推搡时钟；禁用时旧快照keys和恢复行为不变。关闭时解除任务callback并走现有backend.close，避免悬空引用。
+  - Preserve / forbidden: 不改旧任务、旧XML、旧checkpoint/schema、现有用户改动；不改PPO/APPO/SAC learner、IPC、train/play脚本、蒸馏/Target/Context，不加航向保持或新的纠偏Reward，不做MuJoCo依赖升级、全仓清理、仿真或训练。robot物理差异不能用“同名G1”消除，尚未由资产对齐的差异必须保留为适配限制。
+  - Check（已执行，结果见本步Evidence）: uv run --frozen --no-sync pytest tests/envs/locomotion/g1/test_official_oracle_flat.py -q。用固定状态和假backend/pool覆盖新环境这一边界；该检查不实例化真实物理环境、不启动优化器、不证明碰撞物理、吞吐或走直线；真实XML编译/reset/step接通留步骤6授权后验证。
+  - Depends on: 第1步的布局、单位、采样时钟和官方commit。生产实现若需要本包之外的新物理模型写接口、修改原生pool、改变学生字段语义或全局reset，则停在该边界返回总体路线，不扩大此实施包。
 
-Production edits, configuration activation, simulator execution, training, deployment, checkpoint
-mutation, Git publication, and any implementation/runtime/policy-quality claim remain outside this
-design-activation unit.
+- [x] 3. 适配官方 PPO learner — Done when: 固定 rollout 的概率、价值、GAE/returns、loss 和一步优化结果符合固定官方公式及声明的数值容差。
+  - Implementation status (2026-10-16): 已新增 fada_official_ppo.py 中的 OfficialFadaPPO 和 OfficialFadaGaussianDistribution，配置仅更新独立新task的algo字段。复用既有模型/Storage/GAE/final-obs契约，独立双AdamW及精确KL更新；双优化器内存state字典和weights-only恢复已支持，非空rollout或pending transition禁止换权重。普通PPO、wrapper、normalizer、runner、环境及用户原有改动未修改。不交付异构采集器、正式训练命令或可直接蒸馏的checkpoint。
+  - Evidence: uv run --frozen --no-sync pytest tests/algos/test_fada_official_ppo.py -q：17 passed in 1.20s。只运行该文件；首次因测试替身缺真实wrapper的policy别名而失败，第二次16项通过、剩余样本全部在surrogate裁剪平坦区，调整固定样本覆盖真实梯度后同文件通过。无扩展测试套件、仿真或训练。
+  - Evidence scope: Hydra实际compose/正式construct_algorithm构造322输入、29动作、[512,256,128]模型；独立Sequential/概率公式/AdamW对照逐项loss、梯度裁剪后参数增量及moments（含std），并检查float64公式、零KL、std保护、raw action、调度阈值/上下限、手工期望GAE/timeout、8×4完整样本和固定排列、双优化器恢复后下一次更新一致、weights-only与不兼容状态拒绝、未满rollout和旧配置分流。CPU float32 rtol=1e-5/atol=1e-6，float64公式rtol=1e-8/atol=1e-10。未执行官方Holosoma runtime、真实env、GPU更新、runner.learn或checkpoint文件读写，不将公式对照称作完整训练复现。
+  - 以下保留已执行实施包，供步骤4/5追溯：
+  - Why / decision: 保留现有 RSL-RL 模型、TensorDict 和 RolloutStorage；新增算法子类，不直接修改普通 FinalObservationAwarePPO。现有通用归一化函数已支持显式 actor/critic，运行时解析器已有 class_name 扩展口，因此无需为新任务再建 wrapper/resolver，也不修改训练脚本或 .venv。
+  - 已核对的调用链: conf/ppo/task/g1_official_oracle_flat/mujoco.yaml → scripts/train_rsl_rl.py 的 _algo_config_dict / normalize_ppo_train_cfg → RSL-RL OnPolicyRunner → algorithm.class_name.construct_algorithm → 新 learner；继承的 construct_algorithm 按 actor/critic class_name 构建模型并分配现有 RolloutStorage。默认 RslRlVecEnvWrapper 将环境 obs/critic 映射到 actor/critic，并提供 time_outs/time_out_bootstrap_obs。后续异构调度直接消费同一 learner，不复制优化器实现。
+  - Change / allowed scope: 仅新增 src/unilab/algos/torch/fada_official_ppo.py、tests/algos/test_fada_official_ppo.py，扩展 conf/ppo/task/g1_official_oracle_flat/mujoco.yaml 的 algo 字段，并维护本看板。已有 rsl_rl_ppo.py、rsl_rl_runtime.py、training/rsl_rl.py 只作为复用依赖，不计划修改；其中已有用户改动保持原样。
+  - 实施顺序（均属于系统步骤3，不重编号或吸收步骤4/5/6）：
+
+    | 局部实施单元 | 修改 owner 和内容 | 完成标准及依赖 |
+    |---|---|---|
+    | 3.1 模型与配置选择 | 新文件的 OfficialFadaGaussianDistribution 继承 RSL-RL GaussianDistribution；复用 MLPModel。新任务 YAML 显式选择 OfficialFadaPPO、actor/critic 各自配置及观测组。 | 依赖步骤1冻结接口；假元数据通过正式 construct_algorithm 构造 actor=322→29、critic=322→1，旧 task 仍选择原类；同组权重的 mean/value/logp/entropy 与参考一致。 |
+    | 3.2 官方损失与更新 | 新 OfficialFadaPPO(FinalObservationAwarePPO) 的 __init__、_compute_losses、_update_learning_rates、update；维护两个独立 AdamW，不走父类共享 optimizer 或 compiled update。 | 依赖3.1；固定 minibatch 的 KL、surrogate/value/entropy、Actor/Critic梯度裁剪、一次参数及AdamW状态更新与独立参考一致；两个参数集合无重叠。 |
+    | 3.3 rollout 与 learner 状态契约 | 新子类的 process_env_step、compute_returns、save/load；复用现有 transition/storage 和父类正确的 final-obs bootstrap/GAE 数学，只增加新变体必要的完整批次/缺失末端输入校验及双优化器状态保存恢复。 | 依赖3.2；自然终止不bootstrap，超时只从终止前critic obs补值且不跨episode传GAE；满rollout更新后清cursor，learner字典恢复后下一次更新一致。 |
+
+  - 模型冻结: Actor/Critic 都是 [512,256,128]、ELU、默认 nn.Linear 初始化，无共享backbone、LayerNorm、Dropout或经验归一化。Actor是无tanh的29维对角Gaussian，逐动作可学习的直接std参数初值0.8，不改为log_std；学习器记录raw action及对应logp，不提前套环境±100裁剪或0.25比例。新distribution按官方 update_distribution 对scale先clamp(min=1e-6)，再nan_to_num(nan=1e-6,posinf=1,neginf=1e-6)，用于sample/logp/entropy/KL的scale必须一致；两个可选min_noise参数在该preset为None，不扩展无关模式。MLP和分布继续暴露RSL-RL get_policy/distribution协议。
+  - 配置冻结: rollout T=24，epochs=8，minibatches=4，gamma=0.99，lambda=0.95，clip=0.2，value_coef=1，entropy_coef=0.01；actor_lr/critic_lr各1e-5，各AdamW weight_decay=0.001、betas=(0.9,0.999)、eps=1e-8，各自clip_grad_norm=1。新task配置max_iterations=25000、save_interval=100，但本步不执行训练。显式obs_groups.actor=[actor]、critic=[critic]，不增加学生组；旧policy默认不会决定新模型。禁用symmetry、RND、AMP、torch.compile、RNN及多GPU，本期仅单GPU learner，CPU/GPU异构并不等于多GPU算法；收到不支持的开关明确拒绝，不默默退回通用实现。
+  - loss / KL: 保持官方surrogate max(unclipped,clipped)，value max(原误差平方,相对old value裁剪后的误差平方)，Actor=surrogate-0.01*entropy，Critic=value_coef*value。KL使用 torch.distributions.kl_divergence(Normal_old,Normal_new)，不复用本地compiled helper中额外加1e-5的近似式，避免相同分布时出现假KL。每minibatch优化前，KL>0.02则两个lr各除1.5并下限1e-5；0<KL<0.005则各乘1.5并上限1e-2；其余不变。合并loss一次backward后分别裁剪和step，AdamW覆盖全部各自可学习参数（包括Actor std）；不额外排除bias/std的weight decay。保留学习率日志兼容属性learning_rate（Actor值），并给出两个实际lr，不能沿用单优化器保存路径。
+  - rollout / 时间边界: transition存actor/critic obs、raw action、old logp/mean/std/value、reward、done；按(T,N)算GAE，timeout先r+=gamma*V(final)，随后done同时切断TD下一值和GAE传播，rollout尾部非终止行使用last critic obs。超时缺失time_out_bootstrap_obs时新类直接报错，不能继承父类回退当前transition value的分支；旧类回退行为不变。advantage在整份rollout归一化一次，std使用官方torch默认sample std、eps=1e-8，不逐minibatch重归一化。现有storage与官方一样每轮只生成一次randperm并在8个epoch复用，直接复用；要求写满T且T*N可被4整除，禁止静默截尾。update时保留官方调用Actor分布更新的采样/RNG行为。策略版本及IPC完整批次发布/消费仍属于步骤4，不在本步新增进程字段。
+  - learner持久化边界: 新类save/load仅处理RSL-RL算法原生state dict：actor_state_dict、critic_state_dict、两份optimizer_state_dict、各lr及新learner身份/版本；全量恢复先校验身份与所需字段，不把缺失的单优化器旧PPO/SAC状态当新状态加载。兼容runner的显式weights-only加载选择。只做内存字典保存恢复及下一次更新对照，不读取或写入用户checkpoint文件。外部Oracle checkpoint schema/lineage、官方actor_model_state_dict映射、蒸馏教师、中间权重选择和回放适配仍留步骤5，不能用本步learner字典冒充已接通。
+  - Preserve / forbidden: 旧PPO/SAC/APPO/HORA及其默认YAML、脚本、现有用户改动、第二步环境/奖励/资产/学生66维不变；不改IPC、runner生命周期或final-observation通用契约，不新增采集器，不引入V-trace/replay/目标actor，不移植官方评估数据收集回调，不升级依赖或修改site-packages。回退只需选择旧task，旧算法类不重写。
+  - Check（已执行，结果见本步Evidence）: uv run --frozen --no-sync pytest tests/algos/test_fada_official_ppo.py -q。固定CPU tensor、假env元数据和独立参考公式验证同一learner边界；不以loss下降或shape通过代替数值证据，不启动真实环境/runner.learn。
+  - Depends on: 步骤1冻结的learner/rollout接口及固定官方commit；第二步产出的322维和29动作仅作为已知输入契约。离线实施不依赖步骤4的异构采集或步骤5的checkpoint adapter，也不因它们未实现而伪称正式训练已就绪。
+  - Source evidence: 固定commit的[ppo.py](https://github.com/LeCAR-Lab/FADA/blob/290b3a9c5c0ebe2e9851b61350617544be05e9bc/src/holosoma/holosoma/agents/ppo/ppo.py)、[ppo_modules.py](https://github.com/LeCAR-Lab/FADA/blob/290b3a9c5c0ebe2e9851b61350617544be05e9bc/src/holosoma/holosoma/agents/modules/ppo_modules.py)、agents/modules/{modules,data_utils}.py、config_values/algo.py:ppo_deploy及config_types/algo.py；本地读rsl_rl_ppo.py、rsl_rl_runtime.py、training/rsl_rl.py、train_rsl_rl.py、既有tests与已安装RSL-RL PPO/MLP/Gaussian/Storage/Runner。本轮只读这些生产源码，未运行pytest、模型构造、反向传播或训练。
+  - Stop boundary: 若必须改动既有通用normalizer/wrapper、原生storage/runner、环境时钟或外部checkpoint适配才可正确实现，停止本步并回到总体路线说明必要依赖，不在本包内顺带扩展；当前源码核对没有此类阻塞或需要用户选择的新语义。
+
+- [x] 4. 接入异构同步调度 — Done when: 假环境证明每轮只消费对应策略版本的完整rollout，更新完成后再开始下一轮，正常与异常退出都释放资源；CUDA/真实物理/正式入口验收留步骤6。
+  - Implementation status (2026-10-16): 已新增fada_official/{runner,worker,rollout}.py及包入口；复用AsyncRunner、SharedWeightSync和RolloutRingBuffer，在现有ring增加opt-in fada_ppo_v1严格模式、完整PPO字段和int64 header，在现有weight sync公开attach lock，在memory_budget按schema估算。新task增加collection配置；无新IPC队列/事件协议、APPO replay或GAE副本。第三步learner、旧APPO owner/默认模式、通用wrapper、环境/资产及已有用户修改未改。不交付正式train/play入口、外部checkpoint或策略效果结论。
+  - Evidence: uv run --frozen --no-sync pytest tests/algos/test_fada_official_sync.py -q：20 passed in 3.21s。只运行此文件；首次暴露macOS共享内存页取整使size相等检查误拒绝合法mapping，改为容量检查；第二次19通过，剩余测试使用的缺失shm名称超出macOS长度限制，缩短后同文件通过，同时覆盖共享计数器创建失败的构造回滚。没有额外套件、审查、真实仿真或训练。
+  - Evidence scope: 真实spawn worker走两轮假env+CPU OfficialFadaPPO，验证每轮Actor/Critic固定同版、慢learner/ack后collector不偷跑、2×N×T样本一次消费、old统计完整导入、raw reward未预补、timeout末端obs非reset输入；固定手工GAE/returns与仅一次bootstrap；普通worker异常携带traceback且partial round不更新；int64版本>2^24、严格满槽/非法窗口拒绝、旧默认覆盖行为、stale/future/duplicate/缺字段/漏步/掩码/NaN/std/dtype错误拒绝；联合锁版本往返、分配/attach/计数器构造失败、parent超时/提前退出/learner或callback失败、幂等close和共享块不可重attach。未实际验证GPU数值/H2D、原生MuJoCo、性能或策略效果。
+  - Implementation notes: header每slot各用(1,) int64以保持可写view；新schema的逻辑shape/dtype/attach字段由同一spawn descriptor决定，POSIX容量检查允许平台页取整。memory_budget报告逻辑IPC字节，不包括平台页对齐、模型/优化器/Storage和原生sim内存。learn只返回末轮metrics并提供on_iteration组装点，不自动写日志/权重；最后一轮不发布额外版本，stop后沿用既有join/terminate并关闭process handle。
+  - 以下保留已执行实施包，供步骤5/6追溯：
+  - Why / decision: 保留 UniLab 的 CPU 原生批量线程池/GPU learner 分工，但不照搬 APPO 的异步消费、target actor/V-trace 或 rollout replay。首期只用一个 CPU collector 进程，内部 BatchEnvPool 并行全部 N 个环境；每轮采 T=algo.num_steps_per_env（当前24）步，GPU 用第三步 OfficialFadaPPO 完成8×4更新后才放行下一轮。跨轮保留环境/命令/相位，不每轮reset。纯同步先取得正确性，不在本步加流水重叠、多个采集进程或预测吞吐。
+  - 已查明的现状: RolloutRingBuffer 默认覆盖并clamp读指针，现有字段没有old value/mean/std、timeout末端critic输入或策略版本；SharedWeightSync已支持同一lock下整份state_dict及int64版本，但APPO分别发布Actor/Critic，worker attach不传lock；AsyncRunner已提供spawn、stop_event、错误pipe、存活检查及join/terminate/cleanup。APPO worker还会预加timeout bootstrap，并使用另一套policy观测组；这些业务不能直接复用到新learner。只复用IPC能力和生命周期，不复制APPO训练语义。
+  - Change / allowed scope: 新增 src/unilab/algos/torch/fada_official/{__init__,runner,worker,rollout}.py；修改现有 ipc/rollout_ring_buffer.py 的独立payload/严格模式、ipc/weight_sync.py 的公开attach lock接口、ipc/memory_budget.py 的新payload字节估算；仅新task conf/ppo/task/g1_official_oracle_flat/mujoco.yaml 增加collection配置；新增一个 tests/algos/test_fada_official_sync.py；维护本看板。AsyncRunner、collector_error、RslRlVecEnvWrapper、training.seed、第三步learner及现有Storage只读复用，不计划改动。不得把共享内存、版本号或异常协议另复制进一个平行IPC实现。
+  - 实施顺序（均属于系统步骤4，不重编号或吸收步骤5/6）：
+
+    | 局部实施单元 | 修改 owner 和内容 | 完成标准及依赖 |
+    |---|---|---|
+    | 4.1 完整payload与严格IPC | RolloutRingBuffer 新增显式 protocol=fada_ppo_v1（默认旧模式不变），可携带PPO全字段/int64元数据、禁止覆盖未读槽；增加public sync_primitives用于attach。SharedWeightSync公开lock供子进程attach同一锁。memory_budget按实际schema估算。 | 不依赖真实环境；默认旧字段/float32/覆盖行为不变，新模式满槽拒绝写、过期窗口报错而非跳读，int64版本可精确往返，创建/attach失败不泄漏。 |
+    | 4.2 CPU collector | 新 worker.py 的 official_fada_collector_fn / collect_round，使用同配置的MLPModel和第三步Gaussian，复用RslRlVecEnvWrapper的reset/step/final-obs接口；Actor/Critic从一个联合权重对象加载后冻结本轮。 | 依赖4.1和步骤2/3输入契约；每次只发布完整N×T样本；raw action、old logp/mean/std/value、raw reward及timeout末端观测来自正确时刻。使用假env也能走同一入口；失败由现有error pipe传回。 |
+    | 4.3 按轮调度和learner交接 | 新 runner.py 的 OfficialFadaPPORunner(AsyncRunner)、_build_learner、learn、close，以及rollout.py的 validate_round_payload / import_round_into_learner。复用第三步construct_algorithm/process_env_step/compute_returns/update，非APPO staging/replay。 | 依赖4.1/4.2；先核对版本/形状/完整性，复制到有所有权的learner tensor后ack，完整更新后才发布下一版本；一次正常/失败退出都无活子进程或残留共享内存。 |
+
+  - 一轮时序冻结: parent以一个SharedWeightSync发布带actor./critic.前缀的联合state_dict，直接使用它的单一version；子进程attach同一个lock，read_weights_into返回的版本才是权威。读取成功后整轮不再刷新权重；collect T步并填写完整header后signal_write_done；parent校验policy_version等于本轮已发布version，复制完槽数据才advance_read；接着导入Storage、算returns并update，最后发布新联合版本。slot被ack仅表示可复用内存，绝不代表可以用旧权重开始下一轮。collector必须同时等待下一版本和空槽；最后一轮不发布未使用的新权重，直接stop并close。旧/未来/重复版本、漏步或跳轮一律报错，不丢弃后继续训练。version是IPC发布号，不冒充checkpoint iteration或外部lineage。
+  - IPC payload冻结（每slot，沿用env-major；除header外float32）: obs(N,T,O)、critic(N,T,C)、actions(N,T,A)、log_probs(N,T)、rewards(N,T)、dones(N,T)、truncated(N,T)、last_obs(N,O)、last_critic(N,C)，新增values(N,T)、action_mean/action_std(N,T,A)、final_critic(N,T,C)，另policy_version及valid_steps为各slot一个int64。O/C=322、A=29为新task当前schema；final_critic仅truncated行有效，其他行确定清零，截断行必须有终止前输入；dones为terminated|truncated，布尔字段在旧float32存储下只允许0/1。两个额外header不通过float32传递，也不拼入模型输入。严格schema attach须一致，不猜缺字段或补造统计。
+  - 缓冲选择: 新runner只申请一个slot（num_slots=1），严格模式满槽不可覆盖或推进write_ptr，读指针不可自动clamp；collector用有限poll等待空槽及下一权重版，并检查stop。发布前valid_steps必须等于T，各样本字段必须已经填齐；借用view不能带入下一次write，H2D/本地copy完成才ack。沿用现有SharedMemory分配/复制/指针同步；新模式的字段shape/dtype分支、满槽/过期检查只在原ring owner实现。禁止引入另一套payload Queue、replay、APPO staging pool、target network或无锁双份权重发布。
+  - Collector契约: collector_device固定cpu、默认torch线程1且可配置；MuJoCo线程数仍由现有env.mujoco_num_threads配置决定，不把每个环境变成Python进程。仅子进程registry.make实际环境，parent不创建tiny env探维；parent按collection声明的O/C/A及N/T建dummy TensorDict（含真实wrapper的actor/policy/critic别名）和第三步learner，child创建后立即验证实际维数/float32/schema，错配经错误pipe终止。初始化只走wrapper.reset_all准备路径，warmup不进入T；不借wrapper.episode_length_buf冒充真实环境时钟。采样/old logp/mean/std/value在env.step前立即复制，奖励/done/timeout输入在step后立即复制，避免numpy/torch alias被后续reset或step覆盖。按现有apply_training_seed/derive_worker_seed给parent/child独立种子；CPU路径不初始化CUDA。自然终止不伪装超时，不将学生66维或DR辅助info写成actor额外组。
+  - Learner交接冻结: 收到完整slot先校验header、所有shape/dtype/finite、action_std>0、truncated为done子集和对应final_critic存在，再复制为learner拥有的tensor；O(N*T)完整校验未通过不得修改learner Storage或触发更新。将(N,T)转(T,N)，按既有RolloutStorage.Transition填入收集时的old值，不在GPU重新采样action或重算old mean/std/logp/value；逐步调用第三步process_env_step，timeout的time_out_bootstrap_obs只含该步终止前critic输入，下一obs来自下一时刻收集obs或rollout末尾last_obs/last_critic。IPC rewards保持raw，gamma*V(final)仅在第三步learner加一次；随后compute_returns(last_obs TD)和update，不能自己重写GAE/loss或直接翻转learner._returns_ready。回报日志也使用raw reward。相同权重跨CPU/GPU只承诺约定浮点容差，不承诺位级一致。
+  - 调度接口及配置: 新runner的learn(max_iterations, *, on_iteration=None)驱动有限轮次；on_iteration在update完成且新版本发布前收到iteration/版本/样本数/原始奖励与learner metrics，为后续日志/保存提供组装点，本步不增加日志平台或自动checkpoint写入。algo.collection下仅声明mode=synchronous_heterogeneous、collector_device=cpu、num_slots=1、obs_dim/critic_dim/action_dim、collector_torch_threads和有限round_timeout_s/poll_interval_s；N/T沿用algo.num_envs/num_steps_per_env，不设第二个副本。mode字段仅供新runner读取，不设置会触发通用runtime_resolver错误的runtime_impl，不在本步让train_rsl_rl.py自动分流。learner仍由现有normalize_ppo_train_cfg和OfficialFadaPPO.construct_algorithm创建；收集端只创建相同模型，不复制CPU optimizer/整份learner Storage。正式入口、初始episode错峰的实际时钟核对和训练budget消费留步骤6，不声称YAML写了就已经接通正式异构训练。
+  - 生命周期/资源: 新runner learn以try/finally复用AsyncRunner.close；每个parent-owned共享资源创建后立即登记_shared_resources，child只close attached handles，unlink仅parent执行。child env/wrapper、ring、联合weight sync均用finally或ExitStack覆盖创建中途、普通异常、stop退出。parent按短poll周期检查_stop_event和_check_collector_alive，有限总超时，异常携带现有collector错误pipe traceback并终止，不能continue吞掉；无数据且子进程已死、数据刚发布后意外退出、回调失败及learner.update失败均不放行下一轮。close保持幂等，先stop/join，必要时沿用现有terminate策略，再清共享资源和错误pipe。新schema的构造失败需清理已分配块；attach失败只能close不能unlink别人的块。CPU collector假env可通过显式可注入env factory在同一个worker入口验证，默认仍是registry.make，不新设测试后门模式或改全局registry。
+  - 内存/性能边界: 在新IPC分配前按真实字段和num_slots=1用memory_budget现有RAM告警及/dev/shm容量检查；无需增加pinned staging或新transfer pipeline。final_critic保留完整显式输入而非worker预补reward，内存开销需明示估算；GPU Storage/模型/优化器和原生MuJoCo内存另列，不能拿APPO旧估算冒充总量。默认阻塞copy保证ack前完成，H2D重叠和CPU/GPU吞吐测量留步骤6。本轮不触发任何真实分配/测量。
+  - Preserve / forbidden: 既有APPO默认ring字段、float32及覆盖语义、双sync使用者、AsyncRunner公开生命周期、SAC/HORA、第三步PPO数学/双优化器、第二步环境/物理/DR/phase/student输入、用户原有改动全部保留。不改scripts、checkpoint loader/lineage、蒸馏/Target/Context、PPO learner、原生pool或site-packages，不新增外部服务/通信中间件，不启用真实仿真/训练。回退选择旧task即可；新模式不得成为通用ring默认。
+  - Check（已执行，结果见本步Evidence）: uv run --frozen --no-sync pytest tests/algos/test_fada_official_sync.py -q。固定CPU tensor与可spawn脚本化假env，最多两轮小网络；CPU替代GPU验证传输/调度分支，不实例化真实MuJoCo。数据恒等/版本/计数精确比较，CPU浮点rtol=1e-5/atol=1e-6；通过后不追加套件、审查或性能测试。
+  - Depends on: 步骤1冻结的rollout/终止/策略身份及步骤3可用learner；真实环境由步骤2提供但本步最近证明只需假env。步骤5 checkpoint恢复不属于前置依赖，本步只从给定learner初始权重启动；若需恢复文件，由步骤5/6先load第三步learner再publish，不能在collector自行猜路径或权重格式。
+  - Source evidence: 已读ipc/{async_runner,weight_sync,rollout_ring_buffer,memory_budget,collector_error}.py、appo/{runner,worker,staging}.py、training/{rsl_rl,seed}.py、base/final_observation.py、fada_official_ppo.py及现有IPC/APPO/测试dummy env；本轮没有运行pytest、spawn、H2D、物理仿真或训练。此实施包不是异构链路已工作的证据。
+  - Stop boundary: 如实现必须修改第三步learner的GAE/优化语义、旧APPO数据契约、通用wrapper/环境clock、原生batch pool，或需要另起共享通信机制才正确，停止该切片并返回总体路线列出真实依赖；不顺带吸收步骤5/6。当前核对无需要用户再选的语义决策，按上述独立IPC模式实施即可。
+
+- [x] 5. 接通模型加载、回放与蒸馏 — Done when: PPO Oracle 保存/加载后动作一致，回放和蒸馏取得相同教师动作，不兼容版本明确拒绝。
+  - Implementation status (2026-10-16): 按既有实施包完成独立封装checkpoint与双optimizer恢复、冻结raw-action actor、教师分发及20+final谱系校验、resident重载、同帧teacher322/student66/command3视图、外部命令与隔离分支恢复、source/学生产物来源绑定及两类回放adapter。旧SAC与旧学生schema分支保留；未改scripts、正式task YAML、PPO/IPC数学、Reward或Planner训练方法，第6步未执行。
+  - Evidence: uv run --frozen --no-sync pytest tests/algos/test_fada_official_checkpoint_route.py -q：12 passed（1.37s）。使用tmp_path合成小网络权重和脚本化native-pool替身，真实调用learner、封装loader、collector、artifact writer和playback session；验证保存恢复/动作一致、原始动作不额外缩放、跨谱系/同维错配拒绝、重置视图与shadow正常/异常恢复。修正测试夹具的policy别名、配置被建模函数原地修改及backend属性名后，仅复跑同一文件；未追加套件、原生仿真、GUI、CUDA或训练，未读取用户checkpoint。不证明正式入口已接通、吞吐或能走直线。
+  - Necessary immediate consumers: workflow_setup.py为新source contract增加显式准入；persistent_workflow.py在artifact消费前核对新教师来源，防止仅子进程写入身份而parent漏检。环境指纹在official_oracle/config.py冷初始化生成，避免环境依赖算法层。runtime/g1_worker.py不在本FADA实际消费链路，未改。
+  - Why: 第三步 learner.save() 只是原生训练状态，尚无对外 Oracle 身份；当前教师分发、谱系、观测投影和回放仍绑定旧 SAC/98→66 路线。只增加 PPO loader 会留下错误学生输入、命令刷新和中间教师重载缺口。
+  - Freeze: 教师 actor/critic 各322维，学生独立66维、命令3维、动作29维；教师确定性动作取高斯均值，环境执行 q_target=q_default+0.25*a。loader/学生控制器不得额外 tanh、乘0.25或套旧SAC动作范围。学生使用已存在的 g1_official_oracle_student66_v1，不复用 g1_fada_state_v2 身份，即使维数相同。保持现有Planner-IDM网络、历史/预测窗、loss、source比例及采样窗口预算，不趁适配重设训练方法。
+  - 下表是步骤5内部实施单元，不新增或重排系统阶段。所有 src 路径相对 src/unilab；仅列必要生产 owner，兼容别名文件不复制实现。
+
+    | 局部实施单元 | Change / allowed scope 与原因 | Preserve / done when / depends on |
+    |---|---|---|
+    | 5.1 独立PPO模型身份与持久化 | 新增 algos/torch/fada_official/checkpoint.py，封装第三步 OfficialFadaPPO.save/load 原生状态，新增独立外层 schema/算法身份。记录官方commit、任务/backend、teacher/student/action契约、关节顺序、资产/有效配置指纹、网络构造参数、run lineage、实际completed iteration及reward统计口径；提供冻结actor加载和训练恢复接口，不从文件名猜身份。 | 不改旧 privileged_oracle.py 的SAC契约或把25000改作5000。完整恢复保留actor/critic双optimizer、lr及迭代；推理不创建optimizer或rollout storage。固定输入保存前后actor均值一致；恢复learner状态一致。依赖步骤1/3，供步骤4 runner在启动前加载。 |
+    | 5.2 教师分发与谱系准入 | 新增 distill/fada/official_oracle.py 作为PPO到蒸馏的桥；修改 fada/oracle.py 的 load_fada_oracle_policy、reload_fada_oracle_policy_、validate_loaded_fada_oracle_lineage、validate_fada_oracle_environment_contract，按明确新schema分流。扩展 learning/teacher.py:DistillationTeacherSpec、fada/async_config.py:teacher_spec 和 workflows/entry_training.py:build_teacher_spec 的类型转发；如 runtime/g1_worker.py:_teacher_spec 被同一路径实际消费，仅同步其显式类型转发。教师wrapper实现现有 actions_from_env_observation 接口。workflow.py 的教师准入及 async_runtime.py 的persistent worker环境验证接入新身份。 | 旧SAC/Planner fallback和旧谱系校验保持；原生未封装learner字典、混合算法/lineage、不同动作/资产/学生schema必须明确拒绝。resident intermediate重载保持模块对象和设备，不允许换算法。直接调用、回放、蒸馏得到同一raw action。依赖5.1；不创建第二套collector。 |
+    | 5.3 当前帧、终止帧及命令接口 | official_oracle/env.py 的 update_state/init_state/reset/refresh 与快照边界导出当前 student_observation、commands；学生值由已有 get_student_observation() 提供，commands绑定真正 command.velocity。新增显式外部命令设置/解除接口，仅供回放/采集：持有期间不被周期采样覆盖，仍按原规则更新相位，reset和隔离分支恢复均保留一致语义；训练未启用时行为不变。新增 distill/fada/collection_views.py 统一解析同一帧 teacher322、student66、command3，改 collection_transaction.py 和 collection_io.py 的初始、同状态标签、next/terminal及shadow视图消费点；collection/transition.py:set_transition_input_rows 对新能力显式调用，旧数组路径保留。 | 不增加会被wrapper拼进teacher的学生obs group，不从322切片/补零伪造66，不在refresh推进物理、相位或RNG。已有 final_student_observation 与mask只对应reset前末端，reset后历史只用新帧；shadow结束恢复物理、命令/相位及学生视图。假env可辨认三种视图，修改命令后两视图同帧且不漂移；学生future/历史中无特权字段。依赖步骤2及5.2；不改backend/物理/奖励。 |
+    | 5.4 新学生身份贯穿数据及回放 | distill/fada/{observation,model}.py 的contract准入显式增加新学生身份，禁止把teacher322交给纯tensor学生投影。fada/{checkpoint,source_artifact}.py 的保存/读取和artifact identity验证保留新contract及来源task/action/teacher lineage绑定；async_collection.py传递该元数据，沿用现有文件写入/提交机制。visualization/playback_policy_sessions.py 的PPO factory使用5.1同一个冻结actor loader；playback_distill_sessions.py:create_fada_playback_session、playback_sessions.py:FADAPlaybackSession 使用新env学生getter及controller.act_projected，保持done/history清理。playback_controls.py只增加新env外部命令能力分支，不改旧任务键盘规则。 | 旧checkpoint/schema读法不变，新66维模型不能因维数相同落进旧任务或旧Target路线。优先沿现有architecture/runtime/source metadata字段增加严格身份校验，不为本步统一升级全部旧artifact版本；旧Target/Context不新增准入。新模型加载和环境验证先于step，失败关闭已创建资源。固定学生66、命令3经过采集与回放适配得到相同控制器输入；新旧同维错配拒绝。依赖5.1—5.3。 |
+    | 5.5 中间教师元数据与单项离线证明 | 5.1 checkpoint owner提供按实际iteration/reward记录候选权重与选取结果的接口，5.2 validator接收20个唯一中间教师和一个final；保留每个选择的reward及来源，不能用旧240间隔列表替代。新增一个聚焦测试文件 tests/algos/test_fada_official_checkpoint_route.py，以临时合成权重、小网络和脚本化假env覆盖本步链路。 | 不在本步触发25000轮训练或实际reward筛选。候选保存频率100、最终25000及官方按reward选20的实际入口消费/选取调用留步骤6；本步不擅自改成按时间均匀、top20或另造reward分桶算法。缺少20个、重复、跨run、final混作intermediate必须拒绝。依赖5.1—5.4。 |
+
+  - 配置/入口边界: 本步实现可复用的checkpoint writer、恢复/推理loader、教师/视图adapter及准入接口；不改 scripts/{train_rsl_rl,train_distill,play_interactive}.py，不新增正式启动命令或独立蒸馏task YAML。训练runner的 on_iteration 保存回调、真实reward选取口径/调用、新teacher spec及task YAML由步骤6在正式入口统一组装；不能把接口可调用写成命令已可用。若现有schema需新增字段，仅修改上述owner拥有的显式新分支，不将SAC配置字段作为PPO网络构造依据。
+  - Check（实施后仅执行这一项）: uv run --frozen --no-sync pytest tests/algos/test_fada_official_checkpoint_route.py -q。CPU、小网络、tmp_path合成模型和假env，不读取 model/ 下用户文件，不编译MuJoCo、不启动DAgger/CUDA/spawn训练。一次覆盖：原生learner→封装→恢复/冻结actor；直接/蒸馏/回放教师动作一致（CPU rtol=1e-5、atol=1e-6）；resident重载；当前/末端/reset/shadow学生与命令身份；source batch与Planner checkpoint roundtrip；新旧同维和跨谱系拒绝；旧SAC分发哨兵。结构/身份/计数精确比较。通过即止，不追加大套件或审查。此证据不证明真实环境采集、吞吐或能走直线。
+  - Preserve / forbidden: 不改PPO优化/GAE、同步IPC调度、第二步奖励/DR/关节/动作语义、Planner网络/loss/数据比例、旧SAC谱系、Target adaptation或Context。不覆盖/迁移真实权重，不读取用户checkpoint验证猜测；既有用户playback/reset等脏改动须原位保留，重叠处只加入新任务显式分支。回退为不用新task/schema，旧入口不变。
+  - Source evidence: 本轮只读第三/四步新owner，以及 distill/fada/{oracle,privileged_oracle,observation,model,checkpoint,source_artifact,source_plan,workflow,async_config,async_runtime,async_collection,collection_io,collection_transaction,playback}.py、collection/{common,transition}.py、learning/teacher.py、visualization/{playback_policy_sessions,playback_distill_sessions,playback_sessions,playback_controls}.py和旧distill task；确认旧谱系虽支持configured保存间隔，仍要求其全套scheduled checkpoints，不能表示官方reward选择20个的契约。
+  - Depends on: 步骤1/2/3的身份、观测/动作和可恢复learner；步骤4提供runner与on_iteration扩展点，无需重改IPC。第6步接入口后才有正式链路运行证据。
+  - Stop boundary: 若必须更改奖励/命令训练分布、PPO/IPC数学或调度、Planner结构/loss、Target准入或共享backend，停止本切片并将依赖返回总体路线；不得顺带吸收步骤6。步骤5已按用户授权实施完成；后续步骤6仍需另行授权。
+
+- [ ] 6. 正式入口集成与分层验收 — Done when: 正式入口贯通，并分别取得获授权范围内的集成、吞吐与策略质量证据。
+  - Implementation status (2026-10-16): 6.1—6.4代码/离线接线完成，6.5未执行。本步新增fada_official/runtime.py、metrics.py、checkpoint_selection.py及training/fada_official.py；train_rsl_rl正式分流到同步runner，新任务回放共用封装actor，新distill task接独立322/66视图及reward-aware候选。旧resolver的wrapper-only返回值保持兼容。
+  - Persistence / logs: 新run目录独占创建，按completed update每100轮及终点保存且不覆盖模型；恢复双optimizer/lr、样本与完成轮数后再发布权重，仅运行剩余预算，已达目标不spawn。reward_curve.pt记录每轮实际iteration、last-100回合return及候选身份；无完成回合记None，不以单步reward冒充。恢复只承诺权重/优化器续训，环境/RNG与未完成回合不连续。num_timesteps不足一轮或不能整除N×24时明确拒绝。
+  - Official source check: 已核对固定commit的[LoggingHelper](https://github.com/LeCAR-Lab/FADA/blob/290b3a9c5c0ebe2e9851b61350617544be05e9bc/src/holosoma/holosoma/agents/modules/logging_utils.py)：raw reward累加至done，最近100个已完成回合均值；本地相同统计窗口、同时记录有效回合数。中间教师用同commit的logspace初选、reward分位数首次到达补点、再logspace收敛到20；缺reward明确警告并记录logspace，不改变2:1源预算。
+  - Necessary integration dependencies: entry_collection.py的旧任务白名单新增专用PPO/Planner-IDM准入；playback_policy_sessions.py补齐显式checkpoint_path优先级。这两处是正式入口消费时暴露的直接依赖，不改旧任务判定或旧加载行为。未修改scripts/train_distill.py和scripts/play_interactive.py，已有转发无需重做。
+  - Evidence: uv run --frozen --no-sync pytest tests/scripts/test_fada_official_entrypoints.py -q：13 passed（4.28s）。首轮12通过/1失败明确发现交互回放遗漏显式权重路径，修复同一owner后仅复跑同一文件。覆盖真实同步runner两轮（新训1轮+恢复1轮）、已完成不spawn、非法组合/整轮预算拒绝、100/25000保存边界与禁止覆盖、回合统计/实际初始时钟/timeout、非单调reward选择与固定官方函数对照、20+final谱系和2:1预算、真实假pool采集→source artifact→一次IDM/Planner更新、两种回放session及旧resolver哨兵。模型、日志和数据均写tmp_path，不读取model/用户checkpoint；无原生物理、GUI、CUDA或网络日志。不把分组件离线验证称为完整DAgger长训练、吞吐或策略质量通过。
+  - 以下保留已执行的6.1—6.4实施包与待授权的6.5验收边界。
+  - Why: train_rsl_rl.py:main目前无条件创建parent侧env和OnPolicyRunner；runtime resolver仅返回wrapper，不能选用第四步runner。回放已走独立factory，蒸馏已有workflow owner；本步接通这些实际调用点，不在scripts重新实现算法或checkpoint业务。
+  - 6.1 训练入口分流及运行生命周期。
+    - Change / allowed scope: algos/torch/rsl_rl_runtime.py:RslRlPPORuntime/resolve_rsl_rl_ppo_runtime增加可选的新路线训练调用与回放factory字段，默认None；保留旧resolver仅返回wrapper的兼容方式。新增 algos/torch/fada_official/runtime.py实现新路线resolver，新增 training/fada_official.py拥有训练组装、保存/日志回调和恢复流程；scripts/train_rsl_rl.py:main/play_rsl_rl只转发。已有conf/ppo/task/g1_official_oracle_flat/mujoco.yaml显式选择resolver，核对task、learner class、collection mode、teacher/critic维数，不一致在创建资源前拒绝，不回退旧runner。
+    - Behavior: 使用OfficialFadaPPORunner，parent只建GPU learner，CPU子进程拥有实际env；不得为了推导维数再建一份4096环境。复用现有seed、BackendAdapter、日志目录、ExperimentTracker和checkpoint解析；新分支尊重training.device。完整配置验证和checkpoint准入在spawn前完成。try/finally覆盖runner、writer和tracker，回调/保存失败沿既有runner fail-stop退出，不吞错继续训练；不重做共享内存/错误pipe协议。
+    - Preserve / done when: 普通PPO/HORA默认runner、wrapper、日志和启动参数不变；官方新任务必然走新runner，非法组合在env创建前失败。依赖步骤2—5；本单元不改learner或IPC数学。
+  - 6.2 保存恢复、回合奖励及初始时钟。
+    - Change / allowed scope: training/fada_official.py使用第五步checkpoint writer/restore接口；新增 algos/torch/fada_official/metrics.py，从现有完整rollout的原始reward/done重建每环境回合return/length，跨轮保留未完成回合；fada_official/runner.py仅在现有payload消费点调用reducer并扩展on_iteration指标，不改rollout字段、ack或优化次序。保留raw_mean_reward为单步统计，另记有明确窗口和有效回合数的Train/mean_reward；无完整回合时标记缺失，不填零或拿bootstrap后的reward替代。统计窗口与官方日志owner对齐后写入有效配置，不能只因tag相同宣称数值口径相同。
+    - Persistence: 默认总预算25000次完成更新，100次保存一次并在成功终点保存final；文件编号/元数据采用本地completed_iterations，不仿冒官方零基model_24999。恢复时先恢复双optimizer/学习率、completed iteration和累计样本，再首次发布权重；IPC version仍从新进程起算。运行剩余target-completed轮，已达目标不启动collector。training.num_timesteps覆盖需统一按N×24折算并明确不足一轮的处理，不沿旧代码静默强凑一轮。新run/恢复目录不得覆盖既有模型；保留lineage，仅恢复相同有效契约。环境/RNG未完整保存时明确为权重/优化器级续训，不能声称逐位连续；新env回合累计量重新开始，不接上旧env未完成return。
+    - Initial clock: 官方在reset_all后随机化episode_length_buf；本地NpEnv.init_state的随机steps会被_reset_done_envs清零，wrapper自身episode_length_buf也不是终止owner。故在official_oracle/env.py新增本任务专属初始化进度接口，由fada_official/worker.py在warm reset之后、首帧采集之前调用一次；同步真正info['steps']、派生相位及wrapper长度视图，然后refresh，不step物理。训练才启用，局部reset仍归零，回放不启用；不修改通用NpEnv/wrapper或命令分布。
+    - Done when / depends on: 合成一次100边界/终点保存和恢复后继续更新，编号/样本不重复，完整回合reward可手算对齐；初始进度使终止与相位同一时钟，refresh不推进。依赖第五步持久化和步骤2/4。这里是正式入口缺口补齐，不修改第二步奖励或第四步同步语义。
+  - 6.3 中间教师选取及回放/蒸馏配置。
+    - Change / allowed scope: 新增 fada_official/checkpoint_selection.py承接官方offline_data_utils.py的select_suboptimal_checkpoints及其两个纯选择函数；training/fada_official.py保存实际iteration→回合reward曲线，依赖第五步候选身份，不从旧日志文件名猜奖励。选择时去掉final，先logspace覆盖，再补reward分位数0.50/0.70/0.85/0.95/1.00各自首次到达点的最近checkpoint，去重、按iteration排序，超额仍按官方logspace收敛到20；不是top20，也不是均匀奖励分桶。reward缺失时官方会退回logspace，本地必须显式告警并记录实际选择模式，不把fallback称为reward-aware；不足20仍按本地既有source契约拒绝，不伪造或复用final。
+    - Config: 新增conf/distill/task/g1_official_oracle_flat/mujoco_fada_planner.yaml，复用可共享的distill算法字段，明确覆盖task、PPO teacher spec、teacher322/student66/action29、新student schema、动作语义及产物目录；不继承旧fixed_contact/close_some_dr的reward、命令死区、DR或1.5Hz相位。通过第五步loader/视图adapter与现有FADA workflow消费选定20+final。distill/fada/workflow.py只增加新路线选取器的组装调用，source_plan.py既有精确预算/2:1比例/不支持resume限制保持；本任务不是官方整套学生训练方法的完全复现。
+    - Playback: visualization/playback_viewer.py:_create_interactive_session消费resolver的新factory，scripts/play_interactive.py仍只解析/转发；train_rsl_rl.py:play_rsl_rl也走同一个第五步加载owner。Oracle用ppo+新task、学生用fada+新distill task；新任务play profile显式env.evaluating=true、关闭训练DR、1Hz/零命令reset，再由外部命令接口控制。保留322/66视图隔离及一次动作缩放，无航向保持。scripts/train_distill.py:run_fada_training/main仅在组装确有需要时转发，不复制选择逻辑。
+    - Done when / depends on: 合成非单调reward曲线给出与固定官方函数一致的20个候选；传到真实source_plan和第五步loader时身份/预算正确。三个入口分别消费新factory/teacher spec，旧配置分流哨兵不变。依赖5.1—5.5及6.1/6.2。
+  - 6.4 唯一最近证明：正式组装路径的有限离线集成。
+    - Allowed scope / Check: 新增一个tests/scripts/test_fada_official_entrypoints.py；实施后只执行 uv run --frozen --no-sync pytest tests/scripts/test_fada_official_entrypoints.py -q。通过真实Hydra compose、脚本main.__wrapped__或等价正式owner调用、runtime resolver、第四步runner与第五步loader/source writer验证；只替换原生env和GUI外设边界，不把被测runner/loader/workflow全换成mock而宣称集成通过。
+    - Cases: 小网络、少量CPU env、最多两轮真实同步runner；合成初始权重和20+final身份；保存恢复、reward曲线/选取、有限source batch保存后由现有trainer完成一次小更新、两类policy session单步调用和done历史清理。save100/25000等长边界用纯回调输入验证，不实际跑那么多轮。验证非法配置/模型在spawn前拒绝及异常后close；只有旧路由哨兵，不追加旧套件。全部文件写tmp_path，logger disabled，无网络上报，不读取model/用户checkpoint，不运行原生物理/GUI/CUDA。依赖第5步先通过其边界验证；通过后结束代码交付。
+  - 6.5 分层运行验收（本轮和普通代码实施授权均不自动执行）。
+    - Runtime gate: 先具备6.4证据，再单独获授权做有限原生MuJoCo reset/step/最多两轮CUDA更新，使用新临时run、显式小env数与超时；核对322/66视图、timeout末端值、动作/命令相位、checkpoint加载及资源退出。默认建议4 env×24步×2轮，具体机器/预算在运行前确认，不为满足minibatch悄悄增大规模。
+    - Performance gate: 原生/CUDA通过后，另获授权在同一硬件、env数、线程数及24步rollout下测分段collection/update/IO和整体samples/s、内存/显存峰值；记录5ms子步接触采样开销。最多约定的短窗口，不自动扫参数；没有合法同语义基线时只报实测值，不报加速倍数。
+    - Policy-quality gate: 完整训练及蒸馏另行授权，不因smoke通过自动开始。再分别用新Oracle和新Planner-IDM固定直行命令（建议0.3/0.6/1.0m/s）、相同种子/时长，报告速度跟踪、累计偏航、世界横移及跌倒；禁止航向保持或纠偏命令掩盖结果。正式运行前提交预算和可接受阈值供确认；未确认阈值/无结果不宣称“已解决走直线”。不自动根据结果调整reward/采样分布。
+  - Preserve / forbidden: 不改PPO/GAE、IPC调度/数据schema、奖励公式/权重、Planner网络/loss/source比例、旧checkpoint契约、旧启动命令或全局默认任务；不接入Target LoRA、Context、真机、ONNX导出或IsaacSim混合地形。不修改用户已有playback/reset等脏改动的旧行为，不新增分支/commit/发布。回退为不选择新runtime/task，无需迁移旧权重。
+  - Source evidence: 本轮只读scripts/{train_rsl_rl,train_distill,play_interactive}.py、algos/torch/rsl_rl_runtime.py、fada_official/{runner,worker}.py、training/{run,seed,experiment,rsl_rl}.py、visualization/{playback_cli,playback_viewer}.py、NpEnv初始化/reset、official_oracle/{env,command,config}.py和现有task。经GitHub固定commit只读核对[官方选取函数](https://github.com/LeCAR-Lab/FADA/blob/290b3a9c5c0ebe2e9851b61350617544be05e9bc/src/holosoma/holosoma/fada/planner_idm/offline_data_utils.py)、trainer_logging.py的Train/mean_reward读取、trainer_rollout.py的实际调用及[PPO初始时钟/零基保存](https://github.com/LeCAR-Lab/FADA/blob/290b3a9c5c0ebe2e9851b61350617544be05e9bc/src/holosoma/holosoma/agents/ppo/ppo.py)。官方回合统计具体窗口尚须在6.2实现前核对其日志producer，不能用当前raw_mean_reward替代；该细节不由用户猜测。
+  - Depends on / stop boundary: 必须先完成第5步；现在不能直接实施第6步并临时重做第五步。实施发现表外owner或必须修改优化/奖励/IPC/学生方法时停止并返回总体路线，不静默扩大。真实运行的机器、预算和质量阈值是以后运行前的授权边界，不阻止当前静态规划。步骤6可分为“代码/离线接线完成”“runtime通过”“性能已测”“策略质量通过”分别记录，不能一次打勾冒充全通过。
+
+Blockers:
+- 代码/离线接线没有已知阻塞。6.5原生物理/CUDA、吞吐和策略质量仍没有对应运行证据；运行机器、预算和质量阈值待相应授权，不自动启动真实训练。
+
+Next:
+- 第6步代码交付结束。后续按6.5先单独授权有限原生MuJoCo/CUDA验收，再讨论性能与正式训练预算；不追加测试套件或自动开始真实仿真/训练。

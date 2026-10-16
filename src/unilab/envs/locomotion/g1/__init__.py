@@ -9,3 +9,4 @@ from .joystick import (
     G1WalkRewardConfig,
     G1WalkRoughCfg,
 )
+from .official_oracle import G1OfficialOracleFlatCfg, G1OfficialOracleFlatEnv

@@ -289,6 +289,7 @@ def load_fada_adapted_checkpoint(
         if target_schema not in {
             FADA_ACTUATOR_TARGET_ARTIFACT_SCHEMA_VERSION,
             FADA_TARGET_ARTIFACT_SCHEMA_VERSION,
+            FADA_REAL_TARGET_ARTIFACT_SCHEMA_VERSION,
         }:
             raise ValueError("adapted checkpoint target artifact schema is unsupported")
         runtime_target = (

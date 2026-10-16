@@ -121,7 +121,6 @@ def run_fada_training_owner(
     assert_fada_source_route_contract(cfg, config)
     dependencies.require_teacher_policy_collection_route(cfg)
     dependencies.apply_collect_command_distribution_overrides(cfg)
-    paper_source_plan = _paper_source_plan(cfg)
     device = _distill_device(cfg)
     execution_mode = _fada_execution_mode(cfg)
     iterations = int(fada_cfg.iterations)
@@ -141,6 +140,10 @@ def run_fada_training_owner(
             "or teacher.load_run/teacher.checkpoint."
         )
     teacher_spec = dependencies.build_teacher_spec(cfg)
+    if teacher_spec.algo_type == "fada_official_ppo":
+        from unilab.algos.torch.fada_official.checkpoint_selection import configure_source_selection
+        configure_source_selection(cfg, resolved_teacher)
+    paper_source_plan = _paper_source_plan(cfg)
     loaded_final_oracle = dependencies.load_fada_oracle_policy(
         resolved_teacher, teacher_spec, device="cpu"
     )
@@ -169,6 +172,11 @@ def run_fada_training_owner(
             None if teacher_behavior_profile is None else str(teacher_behavior_profile)
         ),
     )
+    if teacher_spec.algo_type == "fada_official_ppo":
+        if config.observation_contract != "g1_official_oracle_student66_v1":
+            raise ValueError("Official Oracle requires its independent student contract")
+        OmegaConf.update(cfg, "training.fada.official_oracle_identity",
+                         loaded_final_oracle.checkpoint_identity, force_add=True)
     policy = FADAPlannerIDMPolicy(config).to(device)
     trainer = FADATrainer(
         policy,

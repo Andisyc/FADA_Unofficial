@@ -749,6 +749,49 @@ class MuJoCoBackend(SimBackend):
     def get_body_mass(self) -> np.ndarray:
         return np.asarray(self._model.body_mass, dtype=np.float64).copy()
 
+    def get_body_inertia(self) -> np.ndarray:
+        return np.asarray(self._model.body_inertia, dtype=np.float64).copy()
+
+    def configure_contact_history(
+        self, body_names: Sequence[str], history_length: int = 3, sample_dt: float = 0.005
+    ) -> None:
+        if history_length < 1 or not np.isclose(sample_dt, self._sim_dt, rtol=0, atol=1e-12):
+            raise ValueError("Contact history must sample at the physics timestep")
+        if getattr(self, "_contact_force_history", None) is not None:
+            raise RuntimeError("Contact history is already configured")
+        names = tuple(body_names)
+        if not names or len(set(names)) != len(names):
+            raise ValueError("Contact bodies must be nonempty and unique")
+        ids = self.get_body_ids(names)
+        self._contact_body_to_slot = {int(body): i for i, body in enumerate(ids)}
+        self._contact_sensor_views = tuple(
+            self.get_sensor_data(f"oracle_contact_{name}") for name in names
+        )
+        if any(view.shape != (self._num_envs, 3) for view in self._contact_sensor_views):
+            raise ValueError("Oracle contact sensors must expose world netforce only")
+        self._contact_force_history = np.zeros(
+            (self._num_envs, history_length, len(names), 3), dtype=self._np_dtype
+        )
+
+    def get_body_contact_forces_w(self, body_ids: np.ndarray) -> np.ndarray:
+        if getattr(self, "_contact_force_history", None) is None:
+            raise RuntimeError("Contact history has not been configured")
+        slots = [self._contact_body_to_slot[int(body)] for body in body_ids]
+        return np.stack([self._contact_sensor_views[i] for i in slots], axis=1)
+
+    def get_body_contact_force_history_w(self, body_ids: np.ndarray) -> np.ndarray:
+        if getattr(self, "_contact_force_history", None) is None:
+            raise RuntimeError("Contact history has not been configured")
+        slots = [self._contact_body_to_slot[int(body)] for body in body_ids]
+        return self._contact_force_history[:, :, slots, :]
+
+    def _record_contact_sample(self) -> None:
+        history = getattr(self, "_contact_force_history", None)
+        if history is not None:
+            history[:, 1:] = history[:, :-1].copy()
+            for slot, sensor in enumerate(self._contact_sensor_views):
+                history[:, 0, slot] = sensor
+
     def get_body_names(self) -> tuple[str, ...]:
         return tuple(
             mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_BODY, body_id)
@@ -824,7 +867,7 @@ class MuJoCoBackend(SimBackend):
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
         self._raise_if_isolated_rollout_poisoned()
-        if self._pre_step_control_fn is not None:
+        if self._pre_step_control_fn is not None or getattr(self, "_contact_force_history", None) is not None:
             return self._step_with_pre_step_control(ctrl, nsteps)
 
         t0 = time.perf_counter()
@@ -898,6 +941,7 @@ class MuJoCoBackend(SimBackend):
 
             t0 = time.perf_counter()
             self._sensor_data[:] = sensor_np.astype(self._np_dtype)
+            self._record_contact_sample()
             refresh_cache_ms += (time.perf_counter() - t0) * 1000.0
 
         if has_pending_xfrc:
@@ -958,6 +1002,8 @@ class MuJoCoBackend(SimBackend):
 
         self._physics_state[env_indices] = state_out.astype(self._np_dtype)
         self._sensor_data[env_indices] = sensor_np.astype(self._np_dtype)
+        if getattr(self, "_contact_force_history", None) is not None:
+            self._contact_force_history[env_indices] = 0
 
     def reset_physics_rows_to_default(self, env_indices: np.ndarray) -> None:
         """Sanitize the given rows back to each assigned model variant's default state.
@@ -1376,11 +1422,14 @@ class MuJoCoBackend(SimBackend):
         """Capture all mutable MuJoCo arrays used by the next batched step."""
 
         # B1: 复制 FULLPHYSICS, sensor cache 与尚未消费的外力, 形成 shadow rollout backend snapshot.
-        return {
+        snapshot = {
             "physics_state": self._physics_state.copy(),
             "sensor_data": self._sensor_data.copy(),
             "pending_xfrc_applied": self._pending_xfrc_applied.copy(),
         }
+        if getattr(self, "_contact_force_history", None) is not None:
+            snapshot["contact_force_history"] = self._contact_force_history.copy()
+        return snapshot
 
     def restore_rollout_state(self, snapshot: Any) -> None:
         """Restore one exact MuJoCo rollout snapshot without resetting the model."""
@@ -1393,6 +1442,8 @@ class MuJoCoBackend(SimBackend):
             "sensor_data": self._sensor_data,
             "pending_xfrc_applied": self._pending_xfrc_applied,
         }
+        if getattr(self, "_contact_force_history", None) is not None:
+            expected["contact_force_history"] = self._contact_force_history
         if set(snapshot) != set(expected):
             raise ValueError(
                 "MuJoCo rollout snapshot keys mismatch: "
@@ -1410,6 +1461,8 @@ class MuJoCoBackend(SimBackend):
         self._physics_state[:] = snapshot["physics_state"]
         self._sensor_data[:] = snapshot["sensor_data"]
         self._pending_xfrc_applied[:] = snapshot["pending_xfrc_applied"]
+        if "contact_force_history" in expected:
+            self._contact_force_history[:] = snapshot["contact_force_history"]
 
     def get_playback_model(self, env_index: int | None = None):
         """Return the MuJoCo model used by playback for one vectorized env.

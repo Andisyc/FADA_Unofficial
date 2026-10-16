@@ -18,7 +18,7 @@ class DistillationTeacherSpec:
 
     obs_dim: int
     action_dim: int
-    algo_type: Literal["sac", "privileged_locomotion_sac"] = "sac"
+    algo_type: Literal["sac", "privileged_locomotion_sac", "fada_official_ppo"] = "sac"
     actor_hidden_dim: int = 512
     use_layer_norm: bool = True
     obs_normalization: bool = False

@@ -119,6 +119,11 @@ def create_rsl_rl_playback_session(
 ) -> tuple[RslRlPlaybackSession, str, str | None]:
     """Create a playback session and load the selected policy checkpoint."""
 
+    if algo_config.get("algorithm", {}).get("class_name") == "unilab.algos.torch.fada_official_ppo:OfficialFadaPPO":
+        return create_official_oracle_playback_session(
+            playback_cfg=playback_cfg, env_factory=env_factory,
+            checkpoint_resolver=checkpoint_resolver, wrapper_cls=wrapper_cls,
+            device=device, log=log)
     device_name = select_torch_device() if device is None else str(device)
     env = env_factory(int(playback_cfg.num_envs))
     if env is None:
@@ -195,6 +200,41 @@ def create_rsl_rl_playback_session(
         num_envs=playback_cfg.num_envs,
     )
     return session, policy_obs_mode, checkpoint_path
+
+
+def create_official_oracle_playback_session(
+    *, playback_cfg, env_factory, checkpoint_resolver, wrapper_cls, device=None, log=print,
+):
+    """Load the same frozen raw-action actor used by the distillation teacher."""
+    from unilab.algos.torch.fada_official.checkpoint import load_oracle_policy, validate_environment
+
+    device_name = select_torch_device() if device is None else str(device)
+    checkpoint = None
+    policy = None
+    if playback_cfg.action_mode == "policy":
+        checkpoint = _normalize_checkpoint_value(playback_cfg.checkpoint_path)
+        if checkpoint is None:
+            checkpoint = checkpoint_resolver(playback_cfg.task, playback_cfg.load_run,
+                playback_cfg.checkpoint, playback_cfg.algo_log_name, playback_cfg.log_root)
+        if checkpoint is None:
+            raise FileNotFoundError("Official Oracle playback requires a sealed checkpoint")
+        policy = load_oracle_policy(checkpoint, device=device_name)
+    env = env_factory(int(playback_cfg.num_envs))
+    if env is None:
+        raise RuntimeError("Playback env factory did not return an environment")
+    try:
+        if policy is not None:
+            validate_environment(policy.checkpoint_identity, env)
+        if playback_cfg.policy_obs_mode not in {"auto", "actor"}:
+            raise ValueError("Official Oracle playback requires actor observations")
+        wrapped = wrapper_cls(env, device=device_name, policy_obs_mode="actor")
+        session = RslRlPlaybackSession(env=env, wrapped_env=wrapped, device=device_name,
+            action_mode=playback_cfg.action_mode, policy=policy, num_envs=playback_cfg.num_envs)
+    except BaseException:
+        env.close()
+        raise
+    log(f"Loading Official PPO Oracle checkpoint: {checkpoint}")
+    return session, "actor", checkpoint
 
 
 def _normalize_checkpoint_value(value: object) -> str | None:

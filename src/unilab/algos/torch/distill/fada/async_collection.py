@@ -326,6 +326,8 @@ def _collect_fada_iteration(
             "v005_replay_enabled": v005_enabled,
             "scenario_allocations": dict(allocations),
             "collections": summaries,
+            **({"official_oracle_identity": worker.final_teacher.checkpoint_identity}
+               if worker.config.observation_contract == "g1_official_oracle_student66_v1" else {}),
         },
     )
     written = time.perf_counter()

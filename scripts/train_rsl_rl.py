@@ -185,6 +185,9 @@ def _resolve_play_num_steps(cfg: DictConfig) -> int | None:
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
     rl_cfg = _algo_config_dict(cfg)
+    runtime = resolve_rsl_rl_ppo_runtime(rl_cfg, default_wrapper_cls=RslRlVecEnvWrapper)
+    if runtime.play is not None:
+        return runtime.play(cfg, root_dir=ROOT_DIR, device=device)
     wrapper_cls = _resolve_ppo_wrapper_cls(rl_cfg)
 
     task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
@@ -296,6 +299,13 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
 
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
 def main(cfg: DictConfig) -> None:
+    runtime = resolve_rsl_rl_ppo_runtime(_algo_config_dict(cfg), default_wrapper_cls=RslRlVecEnvWrapper)
+    if runtime.train is not None:
+        if cfg.training.play_only:
+            runtime.play(cfg, root_dir=ROOT_DIR, device=cfg.training.device)
+        else:
+            runtime.train(cfg, root_dir=ROOT_DIR)
+        return
     ensure_registries()
 
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)

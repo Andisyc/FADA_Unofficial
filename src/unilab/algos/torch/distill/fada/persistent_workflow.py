@@ -88,6 +88,11 @@ def _admit_fada_artifact(
 ) -> tuple[int, list[Mapping[str, Any]], dict[str, torch.Tensor]]:
     """Run the complete pre-mutation admission for new and reusable artifacts."""
 
+    if loaded.config.observation_contract == "g1_official_oracle_student66_v1":
+        expected_identity = OmegaConf.to_container(
+            cfg.training.fada.official_oracle_identity, resolve=True)
+        if loaded.metadata.get("official_oracle_identity") != expected_identity:
+            raise ValueError("Official student artifact teacher lineage/action identity mismatch")
     validate_fada_async_artifact_identity(
         loaded.metadata,
         expected={

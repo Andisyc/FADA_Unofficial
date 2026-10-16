@@ -125,6 +125,12 @@ def validate_fada_oracle_environment_contract(
 ) -> None:
     """Reject same-shape Collector environments with different Actor semantics."""
 
+    if checkpoint_identity.get("schema") == "fada_official_oracle_v1":
+        from unilab.algos.torch.distill.fada.official_oracle import validate_environment
+        if str(cfg.training.task_name) != "G1OfficialOracleFlat" or str(cfg.training.sim_backend) != "mujoco":
+            raise ValueError("Official Oracle requires its MuJoCo task")
+        validate_environment(checkpoint_identity, env)
+        return
     expected_scalar_fields = {
         "task_name": str(cfg.training.task_name),
         "backend": str(cfg.training.sim_backend),
@@ -294,6 +300,19 @@ def validate_loaded_fada_oracle_lineage(
 ) -> None:
     """Validate the complete privileged 20+1 lineage before env construction."""
 
+    from unilab.algos.torch.distill.fada.official_oracle import (
+        LoadedOfficialOracle, BEHAVIOR_PROFILE, validate_lineage,
+    )
+    if isinstance(final_policy, LoadedOfficialOracle):
+        if expected_behavior_profile not in (None, BEHAVIOR_PROFILE):
+            raise ValueError("Official Oracle behavior profile mismatch")
+        if not all(isinstance(p, LoadedOfficialOracle) for p in intermediate_policies):
+            raise ValueError("Official Oracle lineage mixes algorithms")
+        validate_lineage(final_policy.checkpoint_identity,
+                         [p.checkpoint_identity for p in intermediate_policies])
+        return
+    if any(isinstance(p, LoadedOfficialOracle) for p in intermediate_policies):
+        raise ValueError("FADA Oracle lineage mixes algorithms")
     if not isinstance(final_policy, LoadedFADAPrivilegedOraclePolicy):
         if expected_behavior_profile is not None:
             raise ValueError(
@@ -336,7 +355,14 @@ def load_fada_oracle_policy(
 
     path = Path(checkpoint_path)
     payload = torch.load(path, map_location="cpu", weights_only=True)
-    if _is_distillation_student_checkpoint(payload):
+    if isinstance(payload, Mapping) and "official_oracle" in payload:
+        from unilab.algos.torch.distill.fada.official_oracle import load_official_teacher
+        policy = load_official_teacher(path, spec, device=device)
+    elif spec.algo_type == "fada_official_ppo" or (
+        isinstance(payload, Mapping) and payload.get("learner_schema") == "fada_official_ppo_v1"
+    ):
+        raise ValueError("Official Oracle requires a sealed checkpoint, not a native learner state")
+    elif _is_distillation_student_checkpoint(payload):
         loaded = load_distillation_student_policy(path, device=device)
         if loaded.obs_dim != int(spec.obs_dim):
             raise ValueError(
@@ -379,6 +405,13 @@ def reload_fada_oracle_policy_(
     )
     if type(replacement) is not type(policy):
         raise ValueError("Oracle checkpoint runtime type changed during resident reload")
+    from unilab.algos.torch.distill.fada.official_oracle import LoadedOfficialOracle, validate_same_run
+    if isinstance(policy, LoadedOfficialOracle):
+        validate_same_run(policy.checkpoint_identity, replacement.checkpoint_identity)
+        policy.actor.load_state_dict(replacement.actor.state_dict(), strict=True)
+        policy.checkpoint_identity = replacement.checkpoint_identity
+        policy.eval().requires_grad_(False)
+        return
     if isinstance(policy, LoadedFADAPrivilegedOraclePolicy):
         assert isinstance(replacement, LoadedFADAPrivilegedOraclePolicy)
         if replacement.oracle_lineage_id != policy.oracle_lineage_id:

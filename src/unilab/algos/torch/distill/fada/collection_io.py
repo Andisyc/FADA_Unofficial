@@ -7,10 +7,10 @@ import numpy as np
 import torch
 
 from unilab.algos.torch.distill.collection.common import (
-    project_student_obs,
     project_teacher_obs,
 )
 from unilab.algos.torch.distill.fada.model import FADAArchitectureConfig, FADAPlannerIDMPolicy
+from unilab.algos.torch.distill.fada.collection_views import student_view
 
 
 def _module_device(module: torch.nn.Module) -> torch.device:
@@ -194,8 +194,8 @@ def _oracle_shadow_pair(
             shadow_state = env.step(oracle_actions)
             valid &= ~_done_mask(shadow_state, num_envs=int(env.num_envs))
             shadow_obs = {key: np.asarray(value) for key, value in shadow_state.obs.items()}
-            future = project_student_obs(
-                _obs_array(shadow_obs, observation_key),
+            future = student_view(
+                _obs_array(shadow_obs, observation_key), shadow_state.info,
                 projection=student_projection,
                 expected_student_obs_dim=config.obs_dim,
                 student_drop_index=student_drop_index,

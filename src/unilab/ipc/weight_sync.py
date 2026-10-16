@@ -54,6 +54,11 @@ class SharedWeightSync:
     def version(self) -> int:
         return int(self._version_arr[0])
 
+    @property
+    def lock(self):
+        """Pass the same lock to an attaching process for atomic bundle reads."""
+        return self._lock
+
     @classmethod
     def from_state_dict(cls, state_dict, **kwargs):
         param_shapes = {name: p.shape for name, p in state_dict.items()}

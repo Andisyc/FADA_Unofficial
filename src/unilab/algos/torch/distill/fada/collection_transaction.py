@@ -9,10 +9,10 @@ import numpy as np
 import torch
 
 from unilab.algos.torch.distill.collection.common import (
-    project_student_obs,
     project_teacher_obs,
 )
 from unilab.algos.torch.distill.collection.transition import set_transition_input_rows
+from unilab.algos.torch.distill.fada.collection_views import student_view
 from unilab.algos.torch.distill.fada.collection_contract import (
     FADACollectionResult,
     FADACollectionSpec,
@@ -168,8 +168,8 @@ class FADACollectionTransaction:
             projection=self.teacher_projection,
             expected_teacher_obs_dim=int(getattr(self.teacher_policy, "obs_dim", source.shape[1])),
         )
-        student_obs = project_student_obs(
-            source,
+        student_obs = student_view(
+            source, self.info,
             projection=self.student_projection,
             expected_student_obs_dim=self.config.obs_dim,
             student_drop_index=self.student_drop_index,
@@ -275,7 +275,7 @@ class FADACollectionTransaction:
         self.env_steps += 1
         done = _done_mask(state, num_envs=self.num_envs)
         next_obs, next_info = _next_after_done(self.env, state, done)
-        next_student_obs = self._project_student(next_obs)
+        next_student_obs = self._project_student(next_obs, next_info)
         next_obs, next_info, next_student_obs = self._apply_scenario_command(
             next_obs, next_info, next_student_obs
         )
@@ -300,7 +300,7 @@ class FADACollectionTransaction:
                 command_info_key="commands",
                 command_rows=np.zeros((self.num_envs, 3), dtype=np.float32),
             )
-            next_student_obs = self._project_student(next_obs)
+            next_student_obs = self._project_student(next_obs, next_info)
         elif self.command_scenario == "walk_to_stand":
             cycle_steps = self.transition_pre_steps + self.transition_post_steps
             self.transition_phase_step = (self.transition_phase_step + 1) % cycle_steps
@@ -312,7 +312,7 @@ class FADACollectionTransaction:
                 command_info_key="commands",
                 command_rows=next_command,
             )
-            next_student_obs = self._project_student(next_obs)
+            next_student_obs = self._project_student(next_obs, next_info)
         return next_obs, next_info, next_student_obs
 
     def _admit_windows(self, labels: _FADAStepLabels, step: _FADAEnvironmentStep) -> None:
@@ -425,9 +425,9 @@ class FADACollectionTransaction:
             self.action_history[step.done] = 0.0
         self.obs, self.info = step.next_obs, step.next_info
 
-    def _project_student(self, obs: Mapping[str, Any]) -> np.ndarray:
-        return project_student_obs(
-            _obs_array(obs, self.observation_key),
+    def _project_student(self, obs: Mapping[str, Any], info: Mapping[str, Any]) -> np.ndarray:
+        return student_view(
+            _obs_array(obs, self.observation_key), info,
             projection=self.student_projection,
             expected_student_obs_dim=self.config.obs_dim,
             student_drop_index=self.student_drop_index,
@@ -522,8 +522,8 @@ def _prepare_fada_collection(
             env, command_info_key="commands", command_rows=command_rows
         )
     source = _obs_array(obs, spec.observation_key)
-    student_obs = project_student_obs(
-        source,
+    student_obs = student_view(
+        source, info,
         projection=spec.student_projection,
         expected_student_obs_dim=config.obs_dim,
         student_drop_index=spec.student_drop_index,

@@ -14,6 +14,7 @@ from unilab.algos.torch.distill.fada.observation import (
     FADA_G1_STATE_DIM,
     FADA_G1_STATE_OBSERVATION_CONTRACT,
     FADA_LEGACY_OBSERVATION_CONTRACT,
+    FADA_OFFICIAL_STUDENT_CONTRACT,
 )
 
 FADA_COMMAND_SCENARIOS = ("walk", "static_stand", "walk_to_stand")
@@ -60,13 +61,14 @@ class FADAArchitectureConfig:
         if self.observation_contract not in {
             FADA_LEGACY_OBSERVATION_CONTRACT,
             FADA_G1_STATE_OBSERVATION_CONTRACT,
+            FADA_OFFICIAL_STUDENT_CONTRACT,
         }:
             raise ValueError(
                 f"unsupported FADA observation_contract: {self.observation_contract!r}"
             )
         dimensions = (int(self.obs_dim), int(self.action_dim), int(self.command_dim))
         g1_v2_dimensions = (FADA_G1_STATE_DIM, FADA_G1_ACTION_DIM, FADA_G1_COMMAND_DIM)
-        if self.observation_contract == FADA_G1_STATE_OBSERVATION_CONTRACT:
+        if self.observation_contract in {FADA_G1_STATE_OBSERVATION_CONTRACT, FADA_OFFICIAL_STUDENT_CONTRACT}:
             if dimensions != g1_v2_dimensions:
                 raise ValueError(
                     "g1_fada_state_v2 requires obs/action/command dimensions "

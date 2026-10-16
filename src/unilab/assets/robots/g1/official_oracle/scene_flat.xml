@@ -1,0 +1,49 @@
+<mujoco model="g1_official_oracle_flat_scene">
+  <include file="robot.xml"/>
+  <option timestep="0.005" gravity="0 0 -9.81" integrator="implicitfast"/>
+  <worldbody>
+    <light pos="0 0 3" dir="0 0 -1"/>
+    <geom name="floor" type="plane" size="0 0 .05" friction="1 .005 .0001"
+          contype="0" conaffinity="1" rgba=".85 .85 .85 1"/>
+  </worldbody>
+  <sensor>
+    <gyro name="torso_gyro" site="imu_in_torso"/>
+    <framezaxis name="torso_upvector" objtype="body" objname="torso_link"/>
+    <contact name="oracle_contact_pelvis" geom1="floor" body2="pelvis" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_hip_pitch_link" geom1="floor" body2="left_hip_pitch_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_hip_roll_link" geom1="floor" body2="left_hip_roll_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_hip_yaw_link" geom1="floor" body2="left_hip_yaw_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_knee_link" geom1="floor" body2="left_knee_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_ankle_pitch_link" geom1="floor" body2="left_ankle_pitch_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_ankle_roll_link" geom1="floor" body2="left_ankle_roll_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_foot_contact_point" geom1="floor" body2="left_foot_contact_point" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_hip_pitch_link" geom1="floor" body2="right_hip_pitch_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_hip_roll_link" geom1="floor" body2="right_hip_roll_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_hip_yaw_link" geom1="floor" body2="right_hip_yaw_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_knee_link" geom1="floor" body2="right_knee_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_ankle_pitch_link" geom1="floor" body2="right_ankle_pitch_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_ankle_roll_link" geom1="floor" body2="right_ankle_roll_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_foot_contact_point" geom1="floor" body2="right_foot_contact_point" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_waist_yaw_link" geom1="floor" body2="waist_yaw_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_waist_roll_link" geom1="floor" body2="waist_roll_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_torso_link" geom1="floor" body2="torso_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_shoulder_pitch_link" geom1="floor" body2="left_shoulder_pitch_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_shoulder_roll_link" geom1="floor" body2="left_shoulder_roll_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_shoulder_yaw_link" geom1="floor" body2="left_shoulder_yaw_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_elbow_link" geom1="floor" body2="left_elbow_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_wrist_roll_link" geom1="floor" body2="left_wrist_roll_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_wrist_pitch_link" geom1="floor" body2="left_wrist_pitch_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_left_wrist_yaw_link" geom1="floor" body2="left_wrist_yaw_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_shoulder_pitch_link" geom1="floor" body2="right_shoulder_pitch_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_shoulder_roll_link" geom1="floor" body2="right_shoulder_roll_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_shoulder_yaw_link" geom1="floor" body2="right_shoulder_yaw_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_elbow_link" geom1="floor" body2="right_elbow_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_wrist_roll_link" geom1="floor" body2="right_wrist_roll_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_wrist_pitch_link" geom1="floor" body2="right_wrist_pitch_link" data="force" reduce="netforce" num="1"/>
+    <contact name="oracle_contact_right_wrist_yaw_link" geom1="floor" body2="right_wrist_yaw_link" data="force" reduce="netforce" num="1"/>
+  </sensor>
+  <keyframe>
+    <key name="stand" qpos="0 0 0.8 1 0 0 0 -0.312 0 0 0.669 -0.363 0 -0.312 0 0 0.669 -0.363 0 0 0 0 0.2 0.2 0 0.6 0 0 0 0.2 -0.2 0 0.6 0 0 0" ctrl="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"/>
+  </keyframe>
+</mujoco>
+

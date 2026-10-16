@@ -272,9 +272,10 @@ def _build_interactive_env_factory(args, cfg, *, algo: str, available_backends):
             adapter.report_effective_settings(env_cfg_override, mode="回放")
         else:
             adapter_algo = "distill" if algo == "fada" else algo
-            env_cfg_override = _backend_adapter(
-                cfg, algo_name=adapter_algo
-            ).build_task_env_cfg_override()
+            adapter = _backend_adapter(cfg, algo_name=adapter_algo)
+            env_cfg_override = adapter.build_task_env_cfg_override()
+            if str(cfg.training.task_name) == "G1OfficialOracleFlat":
+                env_cfg_override = adapter.build_play_env_cfg_override(env_cfg_override)
             if algo == "distill":
                 env_cfg_override = _apply_distill_playback_reset_contract(
                     env_cfg_override, args.task
@@ -322,9 +323,14 @@ def _create_interactive_session(
         if cfg is not None:
             from unilab.algos.torch.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
 
-            wrapper_cls = resolve_rsl_rl_ppo_runtime(
+            runtime = resolve_rsl_rl_ppo_runtime(
                 _algo_config_dict(cfg), default_wrapper_cls=RslRlVecEnvWrapper
-            ).wrapper_cls
+            )
+            wrapper_cls = runtime.wrapper_cls
+            if runtime.playback_factory is not None:
+                return runtime.playback_factory(playback_cfg=playback_cfg,
+                    env_factory=env_factory, checkpoint_resolver=resolve_checkpoint,
+                    wrapper_cls=wrapper_cls, device=device, log=log)
         return create_rsl_rl_playback_session(
             playback_cfg=playback_cfg,
             env_factory=env_factory,

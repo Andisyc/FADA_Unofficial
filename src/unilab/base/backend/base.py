@@ -210,6 +210,24 @@ class SimBackend(abc.ABC):
         """Return the backend body-mass table."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose body mass")
 
+    def get_body_inertia(self) -> np.ndarray:
+        """Return nominal principal body inertias, for cold-path DR preparation."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose body inertia")
+
+    def configure_contact_history(
+        self, body_names: Sequence[str], history_length: int = 3, sample_dt: float = 0.005
+    ) -> None:
+        """Opt in to world-frame net forces sampled at each physics substep."""
+        raise NotImplementedError(f"{self.__class__.__name__} has no substep contact history")
+
+    def get_body_contact_forces_w(self, body_ids: np.ndarray) -> np.ndarray:
+        """Return (N, B, 3) world-frame net contact forces, in newtons."""
+        raise NotImplementedError(f"{self.__class__.__name__} has no body contact forces")
+
+    def get_body_contact_force_history_w(self, body_ids: np.ndarray) -> np.ndarray:
+        """Return (N, H, B, 3) forces, newest physics sample first."""
+        raise NotImplementedError(f"{self.__class__.__name__} has no substep contact history")
+
     def get_body_names(self) -> tuple[str, ...]:
         """Return body names in fixed backend/model id order."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose body names")

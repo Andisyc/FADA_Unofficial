@@ -14,6 +14,7 @@ from unilab.algos.torch.distill.fada.async_config import validate_fada_training_
 from unilab.algos.torch.distill.fada.model import FADAPlannerIDMPolicy
 from unilab.algos.torch.distill.fada.source_artifact import load_architecture_config
 from unilab.algos.torch.distill.fada.trainer import FADATrainer
+from unilab.algos.torch.fada_official.checkpoint import validate_student_binding
 
 FADA_CHECKPOINT_SCHEMA_VERSION = 5
 FADA_TRAINING_SCHEDULE = "alternating_idm_then_planner"
@@ -81,6 +82,7 @@ def save_fada_checkpoint(
 ) -> Path:
     """Atomically persist the paired FADA module and optimizer identity."""
 
+    validate_student_binding(policy.config, runtime_config)
     metrics = dict(quality_metrics or {})
     v005_enabled = bool(dict(runtime_config.get("v005_replay") or {}).get("enabled", False))
     if v005_enabled and int(completed_iterations) > 0:
@@ -147,6 +149,7 @@ def load_fada_checkpoint(
         raise ValueError(
             f"FADA checkpoint architecture mismatch: expected={policy.config} observed={observed}"
         )
+    validate_student_binding(observed, payload.get("runtime_config"))
     if payload.get("schema_version") in {4, 5}:
         _validated_idm_state(payload)
     if payload.get("schema_version") == 5:
@@ -173,6 +176,7 @@ def load_fada_policy_checkpoint(
         contract_schema_version=FADA_CHECKPOINT_SCHEMA_VERSION,
         context="FADA checkpoint",
     )
+    validate_student_binding(config, payload.get("runtime_config"))
     if payload.get("schema_version") in {4, 5}:
         _validated_idm_state(payload)
     if payload.get("schema_version") == 5:

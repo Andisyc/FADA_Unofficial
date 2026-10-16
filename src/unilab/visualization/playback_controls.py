@@ -38,6 +38,13 @@ def _build_keyboard_commander(env: Any, args) -> KeyboardCommander | None:
 
     state = getattr(env, "state", None)
     command_arr = state.info.get("commands") if state is not None else None
+    if state is not None and state.info.get("student_observation_contract") == "g1_official_oracle_student66_v1":
+        commander = KeyboardCommander.from_vel_limit(
+            ((-1., -1., -1.), (1., 1., 1.)),
+            step_lin=float(getattr(args, "keyboard_step_lin", .1)),
+            step_ang=float(getattr(args, "keyboard_step_ang", .2)))
+        env.set_external_command(commander.command)
+        return commander
     cmds_cfg = getattr(getattr(env, "cfg", None), "commands", None)
     if not isinstance(command_arr, np.ndarray) or cmds_cfg is None:
         print("[play_interactive] interactive.keyboard ignored: task has no velocity 'commands'.")
@@ -200,26 +207,19 @@ def _force_policy_command_probe_obs(env: Any, command: np.ndarray) -> None:
     refresh_state()
 
 
-def _snapshot_policy_command_probe_state(env: Any) -> tuple[np.ndarray | None, np.ndarray | None]:
+def _snapshot_policy_command_probe_state(env: Any) -> np.ndarray | None:
     state = getattr(env, "state", None)
     info = getattr(state, "info", None)
-    obs = getattr(state, "obs", None)
     commands = info.get("commands") if isinstance(info, dict) else None
-    actor_obs = obs.get("obs") if isinstance(obs, dict) else None
-    return (
-        np.array(commands, copy=True) if isinstance(commands, np.ndarray) else None,
-        np.array(actor_obs, copy=True) if isinstance(actor_obs, np.ndarray) else None,
-    )
+    return np.array(commands, copy=True) if isinstance(commands, np.ndarray) else None
 
 
 def _restore_policy_command_probe_state(
     env: Any,
     commands: np.ndarray | None,
-    actor_obs: np.ndarray | None,
 ) -> None:
     state = getattr(env, "state", None)
     info = getattr(state, "info", None)
-    obs = getattr(state, "obs", None)
     if commands is not None and isinstance(info, dict):
         current_commands = info.get("commands")
         if isinstance(current_commands, np.ndarray) and current_commands.shape == commands.shape:
@@ -228,14 +228,10 @@ def _restore_policy_command_probe_state(
             info["commands"] = commands.copy()
         refresh_state = getattr(env, "refresh_state", None)
         if callable(refresh_state):
-            state = refresh_state()
-            obs = getattr(state, "obs", None)
-    if actor_obs is not None and isinstance(obs, dict):
-        current_actor_obs = obs.get("obs")
-        if isinstance(current_actor_obs, np.ndarray) and current_actor_obs.shape == actor_obs.shape:
-            current_actor_obs[...] = actor_obs
-        else:
-            obs["obs"] = actor_obs.copy()
+            # reset_fn may have changed physics and gait phase. Both actor and
+            # critic observations must describe that current state, not the
+            # cached observation from before the probe's resets.
+            refresh_state()
 
 
 def _policy_obs_contains_command(env: Any, *, reset_fn) -> bool:
@@ -248,7 +244,7 @@ def _policy_obs_contains_command(env: Any, *, reset_fn) -> bool:
 
     original_vel_limit = cmds_cfg.vel_limit
     original_rel_standing_envs = getattr(cmds_cfg, "rel_standing_envs", None)
-    original_commands, original_actor_obs = _snapshot_policy_command_probe_state(env)
+    original_commands = _snapshot_policy_command_probe_state(env)
     probe = _COMMAND_OBS_VERIFY_COMMAND.tolist()
     try:
         cmds_cfg.vel_limit = [probe, probe]
@@ -262,7 +258,7 @@ def _policy_obs_contains_command(env: Any, *, reset_fn) -> bool:
         if original_rel_standing_envs is not None:
             cmds_cfg.rel_standing_envs = original_rel_standing_envs
         reset_fn()
-        _restore_policy_command_probe_state(env, original_commands, original_actor_obs)
+        _restore_policy_command_probe_state(env, original_commands)
 
 
 def _handle_command_key(commander: KeyboardCommander, keycode: int) -> None:

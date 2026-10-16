@@ -89,6 +89,18 @@ def get_available_memory_bytes() -> int | None:
     return None
 
 
+def estimate_fada_ppo_bytes(*, num_envs, steps_per_env, obs_dim, action_dim, critic_dim, num_slots=1):
+    """Actual strict-PPO IPC bytes, not a total native/GPU memory estimate."""
+    import numpy as np
+    from unilab.ipc.rollout_ring_buffer import FADA_PPO_PROTOCOL, rollout_field_specs
+
+    specs = rollout_field_specs(num_slots, num_envs, steps_per_env, obs_dim, action_dim,
+                                critic_dim, protocol=FADA_PPO_PROTOCOL)
+    fields = {name: int(np.prod(shape)) * dtype.itemsize for name, (shape, dtype) in specs.items()}
+    return {"total": sum(fields.values()), "ring_buffer": sum(fields.values()),
+            "breakdown": "Strict PPO IPC only; excludes GPU storage/models/optimizers, CPU tensors, native simulator and driver memory."}
+
+
 def get_shared_memory_available_bytes(path: str = "/dev/shm") -> int | None:
     """Best-effort available shared-memory space detection."""
     try:

@@ -48,6 +48,9 @@ def _student_model_type(cfg: DictConfig) -> str:
 def build_teacher_spec(cfg: DictConfig) -> DistillationTeacherSpec:
     """Build the frozen teacher load contract from owner config."""
 
+    if str(cfg.teacher.algo_type) == "fada_official_ppo":
+        from unilab.algos.torch.distill.fada.async_config import teacher_spec
+        return teacher_spec(cfg)
     return DistillationTeacherSpec(
         obs_dim=int(cfg.teacher.obs_dim),
         action_dim=int(cfg.teacher.action_dim),
