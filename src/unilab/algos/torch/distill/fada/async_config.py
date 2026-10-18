@@ -88,11 +88,11 @@ def allocate_fada_command_scenarios(
 
 def teacher_spec(cfg: DictConfig) -> DistillationTeacherSpec:
     algo_type = str(cfg.teacher.algo_type)
-    if algo_type not in {"sac", "privileged_locomotion_sac", "fada_official_ppo"}:
+    if algo_type not in {"sac", "privileged_locomotion_sac", "fada_official_ppo", "fada_official_appo"}:
         raise ValueError(f"Unsupported FADA teacher algo_type: {algo_type!r}")
-    if algo_type == "fada_official_ppo":
+    if algo_type in {"fada_official_ppo", "fada_official_appo"}:
         return DistillationTeacherSpec(obs_dim=int(cfg.teacher.obs_dim),
-            action_dim=int(cfg.teacher.action_dim), algo_type="fada_official_ppo",
+            action_dim=int(cfg.teacher.action_dim), algo_type=cast(Any, algo_type),
             critic_obs_dim=int(cfg.teacher.critic_obs_dim))
     return DistillationTeacherSpec(
         obs_dim=int(cfg.teacher.obs_dim),

@@ -400,6 +400,12 @@ def create_appo_playback_session(
 ) -> tuple[RslRlPlaybackSession, str, str | None]:
     """Create an APPO interactive playback session."""
 
+    from unilab.algos.torch.fada_official_appo.config import RUNTIME_RESOLVER
+    if rl_cfg.get("runtime_resolver") == RUNTIME_RESOLVER:
+        return create_official_appo_playback_session(playback_cfg=playback_cfg, cfg=cfg,
+            rl_cfg=rl_cfg, env_factory=env_factory, root_dir=root_dir, device=device,
+            wrapper_cls=wrapper_cls, log=log)
+
     device_name = select_torch_device() if device is None else str(device)
     env = env_factory(int(playback_cfg.num_envs))
     if env is None:
@@ -457,6 +463,37 @@ def create_appo_playback_session(
         policy_obs_mode,
         checkpoint_path,
     )
+
+
+def create_official_appo_playback_session(*, playback_cfg, cfg, rl_cfg, env_factory,
+                                          root_dir, device=None, wrapper_cls, log=print):
+    """Strict sealed actor path; never falls back to bare APPO state or zero actions."""
+    from unilab.algos.torch.fada_official_appo.config import validate_collection_contract
+    from unilab.algos.torch.fada_official_appo.checkpoint import load_oracle_policy, validate_environment
+    from unilab.algos.torch.fada_official_appo.playback import resolve_play_checkpoint
+    validate_collection_contract(rl_cfg, task_name=cfg.training.task_name,
+        sim_backend=cfg.training.sim_backend, collector_device=cfg.training.collector_device)
+    if playback_cfg.task != "G1OfficialOracleFlat" or playback_cfg.policy_obs_mode not in {"auto", "actor"}:
+        raise ValueError("FADA APPO playback requires its official task and actor observations")
+    device_name = select_torch_device() if device is None else str(device)
+    path = policy = None
+    if playback_cfg.action_mode == "policy":
+        path = resolve_play_checkpoint(cfg, root_dir=root_dir, playback_cfg=playback_cfg)
+        policy = load_oracle_policy(path, device=device_name)
+    env = env_factory(int(playback_cfg.num_envs))
+    if env is None:
+        raise RuntimeError("Playback env factory did not return an environment")
+    try:
+        if policy is not None:
+            validate_environment(policy.checkpoint_identity, env)
+        wrapped = wrapper_cls(env, device=device_name, policy_obs_mode="actor")
+        session = RslRlPlaybackSession(env=env, wrapped_env=wrapped, device=device_name,
+            action_mode=playback_cfg.action_mode, policy=policy, num_envs=playback_cfg.num_envs)
+    except BaseException:
+        env.close()
+        raise
+    log(f"Loading Official APPO Oracle checkpoint: {path}")
+    return session, "actor", str(path) if path is not None else None
 
 
 def create_sac_playback_session(

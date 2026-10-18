@@ -8,7 +8,9 @@ from __future__ import annotations
 import statistics
 import sys
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
+from contextlib import ExitStack
+from functools import wraps
 from queue import Empty, Full
 from typing import Any, Dict
 
@@ -80,6 +82,21 @@ def compute_timeout_bootstrap_correction(
     return corrections
 
 
+def _with_collector_resources(fn):
+    """Close attached mappings/environment even when construction or collection fails."""
+    @wraps(fn)
+    def run(*args, **kwargs):
+        stop_event = args[0] if args else kwargs["stop_event"]
+        try:
+            with ExitStack() as resources:
+                return fn(*args, **kwargs, _resources=resources)
+        except BaseException:
+            stop_event.set()
+            raise
+    return run
+
+
+@_with_collector_resources
 def appo_collector_fn(
     stop_event: Any,
     env_name: str,
@@ -101,6 +118,12 @@ def appo_collector_fn(
     env_cfg_override: dict | None = None,
     seed: int | None = None,
     nan_guard_cfg=None,
+    protocol="appo",
+    num_slots=4,
+    joint_weight_sync=None,
+    env_factory=None,
+    generated_samples=None,
+    _resources=None,
 ):
     """Entry point for the APPO collector subprocess.
 
@@ -114,8 +137,18 @@ def appo_collector_fn(
 
     from unilab.base import registry
     from unilab.ipc import RolloutRingBuffer, SharedWeightSync
+    from unilab.ipc.rollout_ring_buffer import FADA_APPO_PROTOCOL
 
-    ensure_registries()
+    bounded = protocol == FADA_APPO_PROTOCOL
+    if protocol not in ("appo", FADA_APPO_PROTOCOL):
+        raise ValueError("Unsupported APPO collector protocol")
+    collection = rl_cfg.get("collection", {})
+    if bounded:
+        torch.set_num_threads(collection["collector_torch_threads"])
+        if not joint_weight_sync or joint_weight_sync.get("lock") is None:
+            raise ValueError("Bounded APPO requires an atomic joint weight snapshot")
+    if env_factory is None:
+        ensure_registries()
     apply_training_seed(seed, torch_runtime=True, cuda=True)
 
     # Connect to shared memory
@@ -127,19 +160,30 @@ def appo_collector_fn(
         critic_dim=critic_dim,
         create=False,
         shm_name_prefix=shm_rollout_ring_buffer_name,
+        protocol=protocol,
+        num_slots=num_slots,
     )
+    _resources.callback(ring_buffer.close)
     ring_buffer.attach_sync_primitives(*sync_primitives)  # (write_ptr, read_ptr)
-    actor_weight_sync = SharedWeightSync(
-        actor_weight_param_shapes, create=False, shm_name=actor_weight_sync_name
-    )
-    critic_weight_sync = SharedWeightSync(
-        critic_weight_param_shapes, create=False, shm_name=critic_weight_sync_name
-    )
+    if bounded:
+        pair_sync = SharedWeightSync(joint_weight_sync["shapes"], create=False,
+                                    shm_name=joint_weight_sync["name"], lock=joint_weight_sync["lock"])
+        _resources.callback(pair_sync.close)
+    else:
+        actor_weight_sync = SharedWeightSync(
+            actor_weight_param_shapes, create=False, shm_name=actor_weight_sync_name
+        )
+        _resources.callback(actor_weight_sync.close)
+        critic_weight_sync = SharedWeightSync(
+            critic_weight_param_shapes, create=False, shm_name=critic_weight_sync_name
+        )
+        _resources.callback(critic_weight_sync.close)
 
     # Create environment
-    env: Any = registry.make(
+    env: Any = (env_factory or registry.make)(
         env_name, num_envs=num_envs, sim_backend=sim_backend, env_cfg_override=env_cfg_override
     )
+    _resources.callback(env.close)
 
     if nan_guard_cfg is not None and nan_guard_cfg.enabled:
         from unilab.base.nan_guard import NanGuard
@@ -190,22 +234,36 @@ def appo_collector_fn(
     critic = critic.to(collector_device)
     critic.eval()
     # Load initial weights
-    actor_sd = dict(actor.state_dict())
-    actor_weight_sync.read_weights_into(actor_sd)
-    actor.load_state_dict(actor_sd)
-    local_actor_weight_version = actor_weight_sync.version
+    if bounded:
+        pair = torch.nn.ModuleDict({"actor": actor, "critic": critic})
+        pair_sd = pair.state_dict()
+        local_pair_version = pair_sync.read_weights_into(pair_sd)
+        if local_pair_version < 1:
+            raise ValueError("Bounded APPO has no published initial weights")
+    else:
+        actor_sd = dict(actor.state_dict())
+        actor_weight_sync.read_weights_into(actor_sd)
+        actor.load_state_dict(actor_sd)
+        local_actor_weight_version = actor_weight_sync.version
 
-    critic_sd = dict(critic.state_dict())
-    critic_weight_sync.read_weights_into(critic_sd)
-    critic.load_state_dict(critic_sd)
-    local_critic_weight_version = critic_weight_sync.version
+        critic_sd = dict(critic.state_dict())
+        critic_weight_sync.read_weights_into(critic_sd)
+        critic.load_state_dict(critic_sd)
+        local_critic_weight_version = critic_weight_sync.version
 
     # Reset environment
-    env_indices = np.arange(num_envs, dtype=np.int32)
-    try:
-        obs_out, _ = env.reset(env_indices)
-    except TypeError:
-        obs_out, _ = env.reset()
+    if bounded:
+        # Partial reset returns observations but does not create NpEnvState.
+        # Match the official warm-reset lifecycle before scattering its clock.
+        env.reset_all()
+        env.initialize_training_progress()
+        obs_out = env.state.obs  # initialization refreshes the phase observations
+    else:
+        env_indices = np.arange(num_envs, dtype=np.int32)
+        try:
+            obs_out, _ = env.reset(env_indices)
+        except TypeError:
+            obs_out, _ = env.reset()
 
     def to_float32_np(x):
         if hasattr(x, "cpu"):
@@ -222,11 +280,12 @@ def appo_collector_fn(
     obs_td = TensorDict({"policy": obs_torch}, batch_size=num_envs, device=collector_device)
 
     total_steps = 0
-    ep_rewards = []
-    ep_lengths = []
+    ep_rewards = deque(maxlen=100) if bounded else []
+    ep_lengths = deque(maxlen=100) if bounded else []
     current_ep_rewards = np.zeros(num_envs, dtype=np.float32)
     current_ep_lengths = np.zeros(num_envs, dtype=np.int32)
-    ep_reward_components = defaultdict(list)
+    ep_reward_components = defaultdict(lambda: deque(maxlen=100)) if bounded else defaultdict(list)
+    rollout_id = 0
 
     # Episode completion mode counters (reset after each metrics report)
     ep_timeouts = 0
@@ -239,19 +298,34 @@ def appo_collector_fn(
 
     try:
         while not stop_event.is_set():
+            if bounded:
+                while ring_buffer.available() == num_slots:
+                    if stop_event.wait(collection["poll_interval_s"]):
+                        return
+                if stop_event.is_set():
+                    return
             # Pull latest weights from learner
-            if actor_weight_sync.version > local_actor_weight_version:
+            if bounded:
+                if pair_sync.version > local_pair_version:
+                    local_pair_version = pair_sync.read_weights_into(pair_sd)
+            elif actor_weight_sync.version > local_actor_weight_version:
                 actor_sd = dict(actor.state_dict())
                 local_actor_weight_version = actor_weight_sync.read_weights_into(actor_sd)
                 actor.load_state_dict(actor_sd)
-            if critic_weight_sync.version > local_critic_weight_version:
+            if not bounded and critic_weight_sync.version > local_critic_weight_version:
                 critic_sd = dict(critic.state_dict())
                 local_critic_weight_version = critic_weight_sync.read_weights_into(critic_sd)
                 critic.load_state_dict(critic_sd)
 
             # Collect one rollout of length steps_per_env
             write_buf = ring_buffer.write_buffer
+            if bounded:
+                write_buf["valid_steps"][0] = 0
+                write_buf["policy_version"][0] = local_pair_version
+                write_buf["rollout_id"][0] = rollout_id + 1
             for step in range(steps_per_env):
+                if bounded and stop_event.is_set():
+                    return  # Never publish a partial rollout.
                 # --- MLP inference (timed) ---
                 t_mlp = time.perf_counter()
                 with torch.no_grad():
@@ -272,12 +346,17 @@ def appo_collector_fn(
                 # --- Env step (timed) ---
                 t_env = time.perf_counter()
                 state = env.step(actions_np)
+                if bounded and generated_samples is not None:
+                    with generated_samples.get_lock():
+                        generated_samples.value += num_envs
                 ema_env_step_ms = (1 - _EMA) * ema_env_step_ms + _EMA * (
                     (time.perf_counter() - t_env) * 1000
                 )
 
                 next_obs_raw = state.obs
                 reward_raw = np.asarray(state.reward, dtype=np.float32).ravel()
+                if bounded:
+                    reward_raw = reward_raw.copy()
                 truncated_raw = state.truncated.astype(np.float32, copy=False).ravel()
                 combined_done_raw = (
                     (state.terminated | state.truncated).astype(np.float32, copy=False).ravel()
@@ -294,7 +373,11 @@ def appo_collector_fn(
                     truncated=truncated_raw,
                 )
 
-                reward_raw += compute_timeout_bootstrap_correction(
+                if bounded and np.any(truncated_raw > .5):
+                    if (terminal_contract.terminal_obs is None or terminal_contract.terminal_critic is None
+                            or not np.array_equal(terminal_contract.timeout_terminal_mask, truncated_raw > .5)):
+                        raise ValueError("Bounded APPO timeout requires pre-reset final obs and critic")
+                correction = compute_timeout_bootstrap_correction(
                     critic=critic,
                     collector_device=collector_device,
                     gamma=float(cfg["algorithm"].get("gamma", 0.99)),
@@ -310,8 +393,13 @@ def appo_collector_fn(
                         else next_critic_np
                     ),
                 )
+                if bounded:
+                    reward_train = reward_raw + correction
+                else:
+                    reward_raw += correction  # Preserve the legacy APPO reward/statistics contract.
+                    reward_train = reward_raw
 
-                write_buf["rewards"][:, step] = reward_raw
+                write_buf["rewards"][:, step] = reward_train
                 write_buf["dones"][:, step] = combined_done_raw
                 write_buf["truncated"][:, step] = truncated_raw
 
@@ -338,11 +426,14 @@ def appo_collector_fn(
                     try:
                         msg = {
                             "total_steps": total_steps,
-                            "mean_ep_reward": statistics.mean(ep_rewards[-100:]),
-                            "mean_ep_length": statistics.mean(ep_lengths[-100:])
+                            "mean_ep_reward": statistics.mean(ep_rewards if bounded else ep_rewards[-100:]),
+                            "mean_ep_length": statistics.mean(ep_lengths if bounded else ep_lengths[-100:])
                             if ep_lengths
                             else 0.0,
                         }
+                        if bounded:
+                            msg["episode_window_count"] = len(ep_rewards)
+                            msg["reward_statistic"] = "raw_episode_return_last100"
                         # Episode completion mode rates
                         total_ep = ep_timeouts + ep_terminates
                         if total_ep > 0:
@@ -369,17 +460,18 @@ def appo_collector_fn(
 
                 obs_np = next_actor_obs_np
                 critic_np = next_critic_np
+                if bounded:
+                    write_buf["valid_steps"][0] = step + 1
 
             write_buf["last_obs"][:] = obs_np
             if critic_np is not None:
                 write_buf["last_critic"][:] = critic_np
+            if bounded and stop_event.is_set():
+                return
             ring_buffer.signal_write_done()  # atomic increment, non-blocking
+            rollout_id += 1
 
     except Exception:
         stop_event.set()
         raise
 
-    ring_buffer.close()
-    actor_weight_sync.close()
-    critic_weight_sync.close()
-    env.close()

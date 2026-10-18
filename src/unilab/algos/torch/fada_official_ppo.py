@@ -25,11 +25,14 @@ class OfficialFadaGaussianDistribution(GaussianDistribution):
             raise ValueError("Official FADA uses direct std parameters, not log_std")
         super().__init__(output_dim, init_std=init_std, std_type=std_type)
 
-    def update(self, mlp_output):
-        scale = torch.nan_to_num(
+    def effective_std(self):
+        """Return the sampling scale without mutating distribution state."""
+        return torch.nan_to_num(
             self.std_param.clamp(min=1e-6), nan=1e-6, posinf=1., neginf=1e-6
         )
-        self._distribution = Normal(mlp_output, scale.expand_as(mlp_output))
+
+    def update(self, mlp_output):
+        self._distribution = Normal(mlp_output, self.effective_std().expand_as(mlp_output))
 
 
 class OfficialFadaPPO(FinalObservationAwarePPO):

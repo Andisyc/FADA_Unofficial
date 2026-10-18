@@ -29,6 +29,9 @@ def _distribution_std(distribution: Any, mean: torch.Tensor) -> torch.Tensor:
     """Return broadcast std tensor for rsl_rl GaussianDistribution."""
     if distribution is None:
         raise RuntimeError("APPO actor must expose a stochastic distribution")
+    effective_std = getattr(distribution, "effective_std", None)
+    if callable(effective_std):
+        return effective_std().expand_as(mean)
     if distribution.std_type == "scalar":
         return distribution.std_param.expand_as(mean)
     return torch.exp(distribution.log_std_param).expand_as(mean)
@@ -358,13 +361,85 @@ class APPOLearner:
         """
         return self.actor.state_dict()
 
-    def get_state_dict(self):
-        """Return full learner state for checkpointing."""
-        return {
+    def get_state_dict(self, *, complete=False):
+        """Keep legacy export unchanged; opt in to restartable learner state."""
+        state = {
             "actor": self.actor.state_dict(),
             "critic": self.critic.state_dict(),
             "optimizer": self.optimizer.state_dict(),
         }
+        if complete:
+            state.update(learner_schema="unilab_appo_training_state_v1",
+                target_actor=self.target_actor.state_dict(), update_counter=self._update_counter,
+                learning_rate=self.learning_rate, optimizer_class=type(self.optimizer).__name__)
+        return state
+
+    def restore_training_state(self, state):
+        """Validate the complete restart state before changing any live parameter."""
+        required = {"actor", "critic", "target_actor", "optimizer", "learner_schema",
+                    "update_counter", "learning_rate", "optimizer_class"}
+        if (not isinstance(state, dict) or set(state) != required
+                or state["learner_schema"] != "unilab_appo_training_state_v1"
+                or state["optimizer_class"] != type(self.optimizer).__name__):
+            raise ValueError("APPO complete training state/schema/optimizer mismatch")
+        count, lr = state["update_counter"], state["learning_rate"]
+        if (type(count) is not int or count < 0 or type(lr) not in (int, float)
+                or not math.isfinite(lr) or lr <= 0):
+            raise ValueError("APPO invalid update counter or learning rate")
+        for name in ("actor", "critic", "target_actor"):
+            reference = getattr(self, name).state_dict()
+            saved = state[name]
+            if not isinstance(saved, dict) or saved.keys() != reference.keys():
+                raise ValueError(f"APPO {name} state keys mismatch")
+            for key, expected in reference.items():
+                value = saved[key]
+                if (not isinstance(value, torch.Tensor) or value.shape != expected.shape
+                        or value.dtype != expected.dtype or not torch.isfinite(value).all()):
+                    raise ValueError(f"APPO {name}.{key} shape/dtype/finite mismatch")
+        saved_optimizer = state["optimizer"]
+        if not isinstance(saved_optimizer, dict) or set(saved_optimizer) != {"state", "param_groups"}:
+            raise ValueError("APPO optimizer state structure mismatch")
+        groups = saved_optimizer["param_groups"]
+        current_groups = self.optimizer.state_dict()["param_groups"]
+        if not isinstance(groups, list) or len(groups) != len(current_groups):
+            raise ValueError("APPO optimizer parameter groups mismatch")
+        parameter_map = {}
+        for group, expected, live in zip(groups, current_groups, self.optimizer.param_groups, strict=True):
+            if (not isinstance(group, dict) or group.keys() != expected.keys()
+                    or group["params"] != expected["params"] or group["lr"] != lr
+                    or any(group[k] != expected[k] for k in group if k not in {"lr", "params"})):
+                raise ValueError("APPO optimizer parameter mapping/options/lr mismatch")
+            parameter_map.update(zip(group["params"], live["params"], strict=True))
+        moments = saved_optimizer["state"]
+        if not isinstance(moments, dict) or set(moments) - parameter_map.keys():
+            raise ValueError("APPO optimizer parameter state mismatch")
+        if count and set(moments) != parameter_map.keys():
+            raise ValueError("APPO optimizer moments missing after completed updates")
+        expected_keys = ({"step", "exp_avg", "exp_avg_sq"}
+                         if isinstance(self.optimizer, (torch.optim.Adam, torch.optim.AdamW)) else None)
+        for key, values in moments.items():
+            parameter = parameter_map[key]
+            if not isinstance(values, dict) or (expected_keys is not None and
+                    set(values) != expected_keys | ({"max_exp_avg_sq"} if groups[0].get("amsgrad") else set())):
+                raise ValueError("APPO optimizer moments structure mismatch")
+            for name, value in values.items():
+                if name == "step":
+                    if (not isinstance(value, torch.Tensor) or value.numel() != 1
+                            or not torch.isfinite(value).all() or value.item() < 0
+                            or value.item() != int(value.item())):
+                        raise ValueError("APPO optimizer step must be a finite nonnegative integer")
+                elif (not isinstance(value, torch.Tensor) or value.shape != parameter.shape
+                      or value.dtype != parameter.dtype or not torch.isfinite(value).all()):
+                    raise ValueError("APPO optimizer moment shape/dtype/finite mismatch")
+        # Exercise PyTorch's loader on an isolated optimizer before committing.
+        probe = copy.deepcopy(self.optimizer)
+        probe.load_state_dict(copy.deepcopy(saved_optimizer))
+        for name in ("actor", "critic", "target_actor"):
+            getattr(self, name).load_state_dict(state[name], strict=True)
+        self.optimizer.load_state_dict(copy.deepcopy(saved_optimizer))
+        self.learning_rate, self._update_counter = float(lr), count
+        self.target_actor.eval()
+        self.target_actor.requires_grad_(False)
 
     def process_batch(self, batch_dict):
         """Compute V-trace targets on GPU.

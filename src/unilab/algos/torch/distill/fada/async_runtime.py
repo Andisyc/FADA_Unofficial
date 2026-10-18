@@ -128,7 +128,7 @@ class PersistentFADACollectorWorker:
             ).build_task_env_cfg_override()
             fada_cfg = self.cfg.training.fada
             checkpoint_identity = getattr(self.final_teacher, "checkpoint_identity", None)
-            if self.teacher_spec.algo_type in {"privileged_locomotion_sac", "fada_official_ppo"}:
+            if self.teacher_spec.algo_type in {"privileged_locomotion_sac", "fada_official_ppo", "fada_official_appo"}:
                 if not isinstance(checkpoint_identity, Mapping):
                     raise ValueError(
                         "privileged FADA Oracle must expose sealed checkpoint_identity"

@@ -125,8 +125,11 @@ def validate_fada_oracle_environment_contract(
 ) -> None:
     """Reject same-shape Collector environments with different Actor semantics."""
 
-    if checkpoint_identity.get("schema") == "fada_official_oracle_v1":
-        from unilab.algos.torch.distill.fada.official_oracle import validate_environment
+    if checkpoint_identity.get("schema") in {"fada_official_oracle_v1", "fada_official_appo_oracle_v1"}:
+        if checkpoint_identity["schema"] == "fada_official_appo_oracle_v1":
+            from unilab.algos.torch.fada_official_appo.checkpoint import validate_environment
+        else:
+            from unilab.algos.torch.distill.fada.official_oracle import validate_environment
         if str(cfg.training.task_name) != "G1OfficialOracleFlat" or str(cfg.training.sim_backend) != "mujoco":
             raise ValueError("Official Oracle requires its MuJoCo task")
         validate_environment(checkpoint_identity, env)
@@ -303,6 +306,19 @@ def validate_loaded_fada_oracle_lineage(
     from unilab.algos.torch.distill.fada.official_oracle import (
         LoadedOfficialOracle, BEHAVIOR_PROFILE, validate_lineage,
     )
+    from unilab.algos.torch.fada_official_appo.checkpoint import (
+        LoadedOfficialAPPOOracle, validate_lineage as validate_appo_lineage,
+    )
+    if isinstance(final_policy, LoadedOfficialAPPOOracle):
+        if expected_behavior_profile not in (None, BEHAVIOR_PROFILE):
+            raise ValueError("APPO Oracle behavior profile mismatch")
+        if not all(isinstance(p, LoadedOfficialAPPOOracle) for p in intermediate_policies):
+            raise ValueError("APPO Oracle lineage mixes algorithms")
+        validate_appo_lineage(final_policy.checkpoint_identity,
+                             [p.checkpoint_identity for p in intermediate_policies])
+        return
+    if any(isinstance(p, LoadedOfficialAPPOOracle) for p in intermediate_policies):
+        raise ValueError("FADA Oracle lineage mixes algorithms")
     if isinstance(final_policy, LoadedOfficialOracle):
         if expected_behavior_profile not in (None, BEHAVIOR_PROFILE):
             raise ValueError("Official Oracle behavior profile mismatch")
@@ -355,11 +371,19 @@ def load_fada_oracle_policy(
 
     path = Path(checkpoint_path)
     payload = torch.load(path, map_location="cpu", weights_only=True)
-    if isinstance(payload, Mapping) and "official_oracle" in payload:
+    if isinstance(payload, Mapping) and "official_appo_oracle" in payload:
+        if spec.algo_type != "fada_official_appo":
+            raise ValueError("APPO Oracle checkpoint requires teacher.algo_type='fada_official_appo'")
         from unilab.algos.torch.distill.fada.official_oracle import load_official_teacher
         policy = load_official_teacher(path, spec, device=device)
-    elif spec.algo_type == "fada_official_ppo" or (
-        isinstance(payload, Mapping) and payload.get("learner_schema") == "fada_official_ppo_v1"
+    elif isinstance(payload, Mapping) and "official_oracle" in payload:
+        if spec.algo_type != "fada_official_ppo":
+            raise ValueError("PPO Oracle checkpoint requires teacher.algo_type='fada_official_ppo'")
+        from unilab.algos.torch.distill.fada.official_oracle import load_official_teacher
+        policy = load_official_teacher(path, spec, device=device)
+    elif spec.algo_type in {"fada_official_ppo", "fada_official_appo"} or (
+        isinstance(payload, Mapping) and payload.get("learner_schema") in
+        {"fada_official_ppo_v1", "unilab_appo_training_state_v1"}
     ):
         raise ValueError("Official Oracle requires a sealed checkpoint, not a native learner state")
     elif _is_distillation_student_checkpoint(payload):
@@ -406,6 +430,13 @@ def reload_fada_oracle_policy_(
     if type(replacement) is not type(policy):
         raise ValueError("Oracle checkpoint runtime type changed during resident reload")
     from unilab.algos.torch.distill.fada.official_oracle import LoadedOfficialOracle, validate_same_run
+    from unilab.algos.torch.fada_official_appo.checkpoint import LoadedOfficialAPPOOracle, validate_same_lineage
+    if isinstance(policy, LoadedOfficialAPPOOracle):
+        validate_same_lineage(policy.checkpoint_identity, replacement.checkpoint_identity)
+        policy.actor.load_state_dict(replacement.actor.state_dict(), strict=True)
+        policy.checkpoint_identity = replacement.checkpoint_identity
+        policy.eval().requires_grad_(False)
+        return
     if isinstance(policy, LoadedOfficialOracle):
         validate_same_run(policy.checkpoint_identity, replacement.checkpoint_identity)
         policy.actor.load_state_dict(replacement.actor.state_dict(), strict=True)

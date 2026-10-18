@@ -26,6 +26,7 @@ class APPORuntime:
 
     runner_cls: type[Any]
     play_fn: Callable[..., str | None]
+    train_fn: Callable[..., Any] | None = None
 
 
 def resolve_appo_runtime(
@@ -66,4 +67,7 @@ def resolve_appo_runtime(
             f"APPO runtime resolver {runtime_resolver!r} must return an object with "
             "'runner_cls' and 'play_fn' attributes."
         )
-    return APPORuntime(runner_cls=runner_cls, play_fn=play_fn)
+    train_fn = getattr(runtime, "train_fn", None)
+    if train_fn is not None and not callable(train_fn):
+        raise TypeError("APPO train_fn must be callable when supplied")
+    return APPORuntime(runner_cls=runner_cls, play_fn=play_fn, train_fn=train_fn)

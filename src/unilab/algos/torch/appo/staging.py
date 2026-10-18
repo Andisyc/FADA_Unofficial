@@ -135,3 +135,8 @@ class RolloutStagingPool:
             else:
                 out[field] = storage[:, :active_envs, ...]
         return out
+
+    def reset(self) -> None:
+        """Start a fresh batch without reallocating storage; old borrowed batches expire."""
+        self._next_slot = self._active_count = 0
+        self._slot_versions[:] = [-1] * self.capacity

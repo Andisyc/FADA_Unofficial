@@ -1,0 +1,107 @@
+# @package _global_
+# APPO candidates, not a tuned recipe. Budgets count cumulative learner updates.
+algo:
+  algo: appo
+  algo_log_name: fada_official_appo
+  runtime_resolver: unilab.algos.torch.fada_official_appo.runtime:resolve_runtime
+  steps_per_env: 24
+  max_iterations: 150
+  max_unique_samples: null
+  save_interval: 50
+  resume_path: null
+  load_run: "-1"
+  collection:
+    mode: async
+    num_slots: 4
+    collector_torch_threads: 1
+    initial_episode_progress: true
+    poll_interval_s: 0.01
+    wait_timeout_s: 120.0
+    max_policy_lag: 2
+  model_contract:
+    obs_dim: 322
+    critic_dim: 322
+    action_dim: 29
+  obs_groups:
+    actor:
+      policy: 322
+    critic:
+      policy: 322
+  actor:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: false
+    distribution_cfg:
+      class_name: unilab.algos.torch.fada_official_ppo:OfficialFadaGaussianDistribution
+      init_std: 0.8
+      std_type: scalar
+  critic:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: false
+  algorithm:
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    clip_param: 0.2
+    gamma: 0.99
+    lam: 0.95  # constructor compatibility; V-trace does not use GAE lambda
+    value_loss_coef: 1.0
+    entropy_coef: 0.01
+    learning_rate: 1.0e-3
+    max_grad_norm: 1.0
+    use_clipped_value_loss: true
+    schedule: adaptive
+    desired_kl: 0.01
+    adaptive_kl_factor: 1.2
+    adaptive_lr_factor: 1.1
+    optimizer: adam
+    tau: 1.0
+    target_update_freq: 1
+    vtrace_clip_rho: 1.0
+    vtrace_clip_c: 1.0
+    enable_compile: false
+training:
+  oracle_lineage_id: null
+  task_name: G1OfficialOracleFlat
+  sim_backend: mujoco
+  collector_device: cpu
+  no_play: true
+  replay_queue_size: 3  # fresh rollout aggregation capacity, not historical replay
+play_profile:
+  enabled: true
+  env:
+    evaluating: true
+    randomization_enabled: false
+env:
+  sim_dt: 0.005
+  ctrl_dt: 0.02
+  max_episode_seconds: 20.0
+  post_step_forward_sensor: true
+  control_config:
+    action_scale: 0.25
+    simulate_action_latency: false
+  noise_config:
+    level: 0.0
+reward:
+  scales:
+    track_xy: 4.5
+    track_yaw: 2.5
+    alive: 0.15
+    lin_z: -2.0
+    ang_xy: -0.05
+    joint_vel: -0.001
+    joint_acc: -0.00000025
+    action_rate: -0.2
+    pos_limits: -5.0
+    energy: -0.00002
+    pose: -0.5
+    orientation: -5.0
+    world_base_height: -10.0
+    gait: 0.5
+    slide: -0.2
+    clearance: 1.0
+    feet_ori: -2.0
+    close_feet: -5.0
+    undesired: -1.0

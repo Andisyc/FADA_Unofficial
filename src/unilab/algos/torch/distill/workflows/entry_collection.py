@@ -211,7 +211,7 @@ def _require_teacher_policy_collection_route(cfg: DictConfig) -> None:
     task_name = str(OmegaConf.select(cfg, "training.task_name"))
     teacher_task_name = _teacher_task_name_for_collection(cfg)
     if task_name == "G1OfficialOracleFlat":
-        if (teacher_task_name != task_name or str(cfg.teacher.algo_type) != "fada_official_ppo"
+        if (teacher_task_name != task_name or str(cfg.teacher.algo_type) not in {"fada_official_ppo", "fada_official_appo"}
                 or not bool(OmegaConf.select(cfg, "training.fada.enabled", default=False))
                 or int(cfg.teacher.obs_dim) != 322 or int(cfg.teacher.critic_obs_dim) != 322
                 or int(cfg.student.obs_dim) != 66 or int(cfg.teacher.action_dim) != 29

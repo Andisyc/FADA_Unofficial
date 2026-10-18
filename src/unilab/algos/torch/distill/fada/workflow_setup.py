@@ -136,9 +136,9 @@ def assert_fada_source_route_contract(
     fada_cfg = cfg.training.fada
     projection = str(OmegaConf.select(fada_cfg, "student_projection"))
     if config.observation_contract == "g1_official_oracle_student66_v1":
-        if (str(OmegaConf.select(cfg, "teacher.algo_type")) != "fada_official_ppo"
+        if (str(OmegaConf.select(cfg, "teacher.algo_type")) not in {"fada_official_ppo", "fada_official_appo"}
                 or str(cfg.training.task_name) != "G1OfficialOracleFlat"):
-            raise ValueError("Official student source route requires its own PPO task")
+            raise ValueError("Official student source route requires its own PPO/APPO task")
         assert_fada_projection_matches_contract(
             observation_contract=config.observation_contract, projection=projection)
         if any(OmegaConf.select(fada_cfg, n) not in (None, "")

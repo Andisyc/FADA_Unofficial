@@ -14,7 +14,7 @@ from unilab.algos.torch.distill.fada.async_config import validate_fada_training_
 from unilab.algos.torch.distill.fada.model import FADAPlannerIDMPolicy
 from unilab.algos.torch.distill.fada.source_artifact import load_architecture_config
 from unilab.algos.torch.distill.fada.trainer import FADATrainer
-from unilab.algos.torch.fada_official.checkpoint import validate_student_binding
+from unilab.algos.torch.distill.fada.official_oracle import validate_student_binding
 
 FADA_CHECKPOINT_SCHEMA_VERSION = 5
 FADA_TRAINING_SCHEDULE = "alternating_idm_then_planner"

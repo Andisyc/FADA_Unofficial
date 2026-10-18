@@ -101,6 +101,21 @@ def estimate_fada_ppo_bytes(*, num_envs, steps_per_env, obs_dim, action_dim, cri
             "breakdown": "Strict PPO IPC only; excludes GPU storage/models/optimizers, CPU tensors, native simulator and driver memory."}
 
 
+def estimate_fada_appo_bytes(*, num_envs, steps_per_env, obs_dim, action_dim, critic_dim,
+                             num_slots=4, weight_param_shapes=None):
+    """Logical IPC bytes, including the joint float32 weights and int64 version."""
+    import numpy as np
+    from unilab.ipc.rollout_ring_buffer import FADA_APPO_PROTOCOL, rollout_field_specs
+
+    specs = rollout_field_specs(num_slots, num_envs, steps_per_env, obs_dim, action_dim,
+                                critic_dim, protocol=FADA_APPO_PROTOCOL)
+    ring_bytes = sum(int(np.prod(shape)) * dtype.itemsize for shape, dtype in specs.values())
+    weight_bytes = sum(int(np.prod(shape)) * 4 for shape in (weight_param_shapes or {}).values()) + 8
+    return {"ring_buffer": ring_bytes, "weights": weight_bytes, "total": ring_bytes + weight_bytes,
+            "breakdown": "Bounded APPO IPC + joint weights; excludes page rounding, CPU copies, "
+                         "GPU staging/models/optimizers, native simulator and driver memory."}
+
+
 def get_shared_memory_available_bytes(path: str = "/dev/shm") -> int | None:
     """Best-effort available shared-memory space detection."""
     try:

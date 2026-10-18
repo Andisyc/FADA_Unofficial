@@ -372,6 +372,9 @@ def main(cfg: DictConfig) -> None:
     rl_cfg = cast(dict[str, Any], rl_cfg_raw)
     apply_appo_runtime_flags(rl_cfg, cfg, training_enabled=not cfg.training.play_only)
     appo_runtime = resolve_appo_runtime(rl_cfg, default_play_fn=play_appo)
+    if appo_runtime.train_fn is not None:
+        return appo_runtime.train_fn(cfg, rl_cfg, root_dir=ROOT_DIR,
+                                     env_cfg_override=env_cfg_override, seed_info=seed_info)
 
     if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

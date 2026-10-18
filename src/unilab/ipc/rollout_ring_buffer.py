@@ -23,6 +23,9 @@ _FIELD_SHAPES = {
 }
 
 FADA_PPO_PROTOCOL = "fada_ppo_v1"
+FADA_APPO_PROTOCOL = "fada_appo_v1"
+_HEADERS = ("rollout_id", "policy_version", "valid_steps")
+_STRICT_PROTOCOLS = (FADA_PPO_PROTOCOL, FADA_APPO_PROTOCOL)
 _PPO_FIELDS = {
     "values": lambda s, n, t, o, a, c: (s, n, t),
     "action_mean": lambda s, n, t, o, a, c: (s, n, t, a),
@@ -35,9 +38,13 @@ _PPO_FIELDS = {
 
 def rollout_field_specs(num_slots, num_envs, num_steps, obs_dim, action_dim, critic_dim=0, *, protocol="appo"):
     """One source of truth for allocation, attachment and memory estimation."""
-    if protocol not in ("appo", FADA_PPO_PROTOCOL):
+    if protocol not in ("appo", *_STRICT_PROTOCOLS):
         raise ValueError(f"Unknown rollout protocol: {protocol}")
     fields = dict(_FIELD_SHAPES)
+    if protocol == FADA_APPO_PROTOCOL:
+        if min(num_slots, num_envs, num_steps, obs_dim, action_dim, critic_dim) < 1 or num_slots < 2:
+            raise ValueError("FADA APPO requires positive dimensions and at least two slots")
+        fields.update({name: lambda s, n, t, o, a, c: (s, 1) for name in _HEADERS})
     if protocol == FADA_PPO_PROTOCOL:
         if min(num_slots, num_envs, num_steps, obs_dim, action_dim, critic_dim) < 1:
             raise ValueError("FADA PPO rollout dimensions must all be positive")
@@ -46,7 +53,7 @@ def rollout_field_specs(num_slots, num_envs, num_steps, obs_dim, action_dim, cri
         fields.pop("critic", None)
         fields.pop("last_critic", None)
     return {name: (shape(num_slots, num_envs, num_steps, obs_dim, action_dim, critic_dim),
-                   np.dtype(np.int64 if name in ("policy_version", "valid_steps") else np.float32))
+                   np.dtype(np.int64 if name in _HEADERS else np.float32))
             for name, shape in fields.items()}
 
 
@@ -93,7 +100,7 @@ class RolloutRingBuffer:
                 if shm.size < max(nbytes, 1):
                     raise ValueError(f"Rollout attachment byte size mismatch: {field}")
                 self._arrays[field] = np.ndarray(shape, dtype=dtype, buffer=shm.buf)
-                if create and field in ("policy_version", "valid_steps"):
+                if create and field in _HEADERS:
                     self._arrays[field].fill(0)
             if create:
                 self._write_ptr = _SPAWN_CTX.Value("l", 0)
@@ -126,7 +133,7 @@ class RolloutRingBuffer:
         self._read_ptr = read_ptr
 
     def _clamp_read_ptr_to_valid_window(self) -> None:
-        if self.protocol == FADA_PPO_PROTOCOL:
+        if self.protocol in _STRICT_PROTOCOLS:
             self._strict_counts()
             return
         wp = int(self._write_ptr.value)
@@ -143,26 +150,31 @@ class RolloutRingBuffer:
 
     @property
     def write_buffer(self) -> Dict[str, np.ndarray]:
-        if self.protocol == FADA_PPO_PROTOCOL and self.available() == self.num_slots:
+        if self.protocol in _STRICT_PROTOCOLS and self.available() == self.num_slots:
             raise BufferError("Strict rollout buffer is full")
         s = self.write_slot
         return {field: arr[s] for field, arr in self._arrays.items()}
 
     def signal_write_done(self) -> None:
-        if self.protocol == FADA_PPO_PROTOCOL:
+        if self.protocol in _STRICT_PROTOCOLS:
             with self._write_ptr.get_lock(), self._read_ptr.get_lock():
                 wp, rp = self._strict_counts()
                 if wp - rp == self.num_slots:
                     raise BufferError("Strict rollout buffer is full")
                 if self._arrays["valid_steps"][wp % self.num_slots, 0] != self.num_steps:
                     raise ValueError("Cannot publish an incomplete PPO rollout")
+                if self.protocol == FADA_APPO_PROTOCOL:
+                    slot = wp % self.num_slots
+                    if (self._arrays["rollout_id"][slot, 0] != wp + 1
+                            or self._arrays["policy_version"][slot, 0] < 1):
+                        raise ValueError("Invalid FADA APPO rollout identity/version")
                 self._write_ptr.value += 1
             return
         with self._write_ptr.get_lock():
             self._write_ptr.value += 1
 
     def available(self) -> int:
-        if self.protocol == FADA_PPO_PROTOCOL:
+        if self.protocol in _STRICT_PROTOCOLS:
             wp, rp = self._strict_counts()
             return wp - rp
         self._clamp_read_ptr_to_valid_window()
@@ -180,7 +192,7 @@ class RolloutRingBuffer:
 
     @property
     def read_slot(self) -> int:
-        if self.protocol == FADA_PPO_PROTOCOL and self.available() == 0:
+        if self.protocol in _STRICT_PROTOCOLS and self.available() == 0:
             raise BufferError("Strict rollout buffer is empty")
         self._clamp_read_ptr_to_valid_window()
         return int(self._read_ptr.value) % self.num_slots
@@ -224,7 +236,7 @@ class RolloutRingBuffer:
         return result
 
     def advance_read(self) -> None:
-        if self.protocol == FADA_PPO_PROTOCOL:
+        if self.protocol in _STRICT_PROTOCOLS:
             with self._write_ptr.get_lock(), self._read_ptr.get_lock():
                 wp, rp = self._strict_counts()
                 if wp == rp:

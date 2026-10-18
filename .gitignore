@@ -5,8 +5,18 @@ dist/
 *.egg-info/
 
 # uv
-.venv/
+.venv*/
 .python-version
+
+# Other local Python environments (do not ignore src/unilab/envs/)
+venv/
+venv-*/
+venv_*/
+env/
+/envs/
+.conda/
+.tox/
+.nox/
 
 # Local secrets and credentials
 .env
@@ -83,7 +93,15 @@ src/unilab/assets/checkpoints/**/*.pt
 src/unilab/assets/checkpoints/**/*.onnx
 
 # Local training and evaluation checkpoints
-/checkpoints/
+checkpoints/
+/models/
+*.pt
+*.pth
+*.pth.tar
+*.ckpt
+*.safetensors
+*.onnx
+*.pt2
 
 
 # Local tool/runtime artifacts (any subfolder)

@@ -402,8 +402,10 @@ def create_fada_playback_session(
         raise RuntimeError("Playback env factory did not return an environment.")
     try:
         if architecture is not None and architecture.observation_contract == "g1_official_oracle_student66_v1":
-            from unilab.algos.torch.fada_official.checkpoint import validate_environment
-            validate_environment(loaded.checkpoint["runtime_config"]["official_oracle_identity"], env)
+            from unilab.algos.torch.distill.fada.oracle import validate_fada_oracle_environment_contract
+            validate_fada_oracle_environment_contract(
+                loaded.checkpoint["runtime_config"]["official_oracle_identity"], env, cfg
+            )
         wrapped_env = resolved_deps["wrapper_cls"](
             env, device=device_name, policy_obs_mode=policy_obs_mode
         )

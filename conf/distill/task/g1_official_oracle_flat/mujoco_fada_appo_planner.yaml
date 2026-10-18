@@ -1,0 +1,73 @@
+# @package _global_
+# Same official-flat/student contract, with an explicitly sealed APPO teacher.
+training:
+  task_name: G1OfficialOracleFlat
+  sim_backend: mujoco
+  collect_action_mode: teacher_policy
+  fada:
+    enabled: true
+    training_schedule: alternating_idm_then_planner
+    obs_dim: 66
+    observation_contract: g1_official_oracle_student66_v1
+    student_projection: g1_official_oracle_student66_v1
+    source_behavior_profile: official_oracle_flat_v1
+    oracle_checkpoint_sampling_mode: reward_aware
+    oracle_reward_curve_path: null
+    async_artifact_dir: logs/fada/planner_idm_official_appo/source_batches
+    checkpoint_path: logs/fada/planner_idm_official_appo.pt
+    stand_transition_curriculum:
+      walk_command: [0.6, 0.0, 0.0]
+teacher:
+  algo_family: appo
+  algo_type: fada_official_appo
+  algo_log_name: fada_official_appo
+  task: appo/g1_official_oracle_flat/mujoco
+  task_name: G1OfficialOracleFlat
+  behavior_profile: official_oracle_flat_v1
+  obs_dim: 322
+  critic_obs_dim: 322
+  action_dim: 29
+  obs_normalization: false
+student:
+  obs_dim: 66
+  action_dim: 29
+  squash_action: false
+env:
+  sim_dt: 0.005
+  ctrl_dt: 0.02
+  max_episode_seconds: 20.0
+  post_step_forward_sensor: true
+  evaluating: false
+  randomization_enabled: true
+  mujoco_num_threads: 1
+  control_config:
+    action_scale: 0.25
+    simulate_action_latency: false
+  noise_config:
+    level: 0.0
+reward:
+  scales:
+    track_xy: 4.5
+    track_yaw: 2.5
+    alive: 0.15
+    lin_z: -2.0
+    ang_xy: -0.05
+    joint_vel: -0.001
+    joint_acc: -0.00000025
+    action_rate: -0.2
+    pos_limits: -5.0
+    energy: -0.00002
+    pose: -0.5
+    orientation: -5.0
+    world_base_height: -10.0
+    gait: 0.5
+    slide: -0.2
+    clearance: 1.0
+    feet_ori: -2.0
+    close_feet: -5.0
+    undesired: -1.0
+play_profile:
+  enabled: true
+  env:
+    evaluating: true
+    randomization_enabled: false

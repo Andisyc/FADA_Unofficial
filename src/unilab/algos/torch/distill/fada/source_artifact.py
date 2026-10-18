@@ -13,7 +13,7 @@ from typing import Any, Iterator, Mapping
 import torch
 
 from unilab.algos.torch.distill.fada.model import FADAArchitectureConfig, FADASourceBatch
-from unilab.algos.torch.fada_official.checkpoint import validate_student_binding
+from unilab.algos.torch.distill.fada.official_oracle import validate_student_binding
 
 FADA_SOURCE_BATCH_SCHEMA_VERSION = 4
 FADA_SHARDED_SOURCE_SCHEMA_VERSION = 5
